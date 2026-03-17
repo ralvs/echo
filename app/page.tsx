@@ -1,0 +1,208 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { motion } from "motion/react";
+import { DateTime } from "luxon";
+import { StatCard } from "@/components/stat-card";
+import { TopicPill } from "@/components/topic-pill";
+import type { ThoughtStats, Thought } from "@/lib/types";
+
+function sortEntries(obj: Record<string, number>) {
+	return Object.entries(obj)
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, 12);
+}
+
+export default function DashboardPage() {
+	const [stats, setStats] = useState<ThoughtStats | null>(null);
+	const [recent, setRecent] = useState<Thought[]>([]);
+	const [loading, setLoading] = useState(true);
+
+	useEffect(() => {
+		Promise.all([
+			fetch("/api/stats").then((r) => r.json()).catch(() => ({ total: 0, dateRange: null, types: {}, topics: {}, people: {} })),
+			fetch("/api/thoughts?limit=5").then((r) => r.json()).catch(() => []),
+		]).then(([statsData, recentData]) => {
+			setStats(statsData);
+			setRecent(Array.isArray(recentData) ? recentData : []);
+			setLoading(false);
+		});
+	}, []);
+
+	if (loading) {
+		return (
+			<div className="flex items-center justify-center h-screen">
+				<div className="w-6 h-6 rounded-full border-2 border-amber-glow/30 border-t-amber-glow animate-spin" />
+			</div>
+		);
+	}
+
+	const dateRange = stats?.dateRange
+		? `${DateTime.fromISO(stats.dateRange.from).toFormat("LLL d")} — ${DateTime.fromISO(stats.dateRange.to).toFormat("LLL d, yyyy")}`
+		: "No data yet";
+
+	return (
+		<div className="p-8 max-w-[1200px]">
+			<motion.div
+				initial={{ opacity: 0, y: -8 }}
+				animate={{ opacity: 1, y: 0 }}
+				transition={{ duration: 0.6 }}
+				className="mb-10"
+			>
+				<h1 className="font-display text-4xl text-text-primary mb-1">
+					Your Brain
+				</h1>
+				<p className="text-text-secondary text-sm">{dateRange}</p>
+			</motion.div>
+
+			{/* Stat cards */}
+			<div className="grid grid-cols-4 gap-4 mb-10">
+				<StatCard label="Total Thoughts" value={stats?.total || 0} delay={0.05} />
+				<StatCard
+					label="Types"
+					value={Object.keys(stats?.types || {}).length}
+					subtitle="distinct categories"
+					delay={0.1}
+				/>
+				<StatCard
+					label="Topics"
+					value={Object.keys(stats?.topics || {}).length}
+					subtitle="unique tags"
+					delay={0.15}
+				/>
+				<StatCard
+					label="People"
+					value={Object.keys(stats?.people || {}).length}
+					subtitle="mentioned"
+					delay={0.2}
+				/>
+			</div>
+
+			<div className="grid grid-cols-3 gap-6">
+				{/* Type breakdown */}
+				<motion.div
+					initial={{ opacity: 0, y: 12 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ duration: 0.5, delay: 0.25 }}
+					className="bg-surface-2 border border-border-subtle rounded-[var(--radius-md)] p-5"
+				>
+					<h2 className="text-[11px] font-mono text-text-tertiary tracking-wider uppercase mb-4">
+						By Type
+					</h2>
+					<div className="space-y-3">
+						{sortEntries(stats?.types || {}).map(([type, count]) => {
+							const pct = stats?.total ? (count / stats.total) * 100 : 0;
+							return (
+								<div key={type}>
+									<div className="flex justify-between items-center mb-1.5">
+										<span className="text-sm text-text-primary capitalize">
+											{type.replace(/_/g, " ")}
+										</span>
+										<span className="text-xs font-mono text-text-tertiary">
+											{count}
+										</span>
+									</div>
+									<div className="h-1 bg-surface-3 rounded-full overflow-hidden">
+										<motion.div
+											initial={{ width: 0 }}
+											animate={{ width: `${pct}%` }}
+											transition={{ duration: 0.8, delay: 0.4 }}
+											className="h-full bg-amber-glow/60 rounded-full"
+										/>
+									</div>
+								</div>
+							);
+						})}
+					</div>
+				</motion.div>
+
+				{/* Top topics */}
+				<motion.div
+					initial={{ opacity: 0, y: 12 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ duration: 0.5, delay: 0.3 }}
+					className="bg-surface-2 border border-border-subtle rounded-[var(--radius-md)] p-5"
+				>
+					<h2 className="text-[11px] font-mono text-text-tertiary tracking-wider uppercase mb-4">
+						Top Topics
+					</h2>
+					<div className="flex flex-wrap gap-2">
+						{sortEntries(stats?.topics || {}).map(([topic, count]) => (
+							<TopicPill key={topic} topic={topic} count={count} />
+						))}
+					</div>
+				</motion.div>
+
+				{/* People */}
+				<motion.div
+					initial={{ opacity: 0, y: 12 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ duration: 0.5, delay: 0.35 }}
+					className="bg-surface-2 border border-border-subtle rounded-[var(--radius-md)] p-5"
+				>
+					<h2 className="text-[11px] font-mono text-text-tertiary tracking-wider uppercase mb-4">
+						People
+					</h2>
+					<div className="space-y-2.5">
+						{sortEntries(stats?.people || {}).map(([person, count]) => (
+							<div key={person} className="flex justify-between items-center">
+								<span className="text-sm text-text-primary">{person}</span>
+								<span className="text-xs font-mono text-text-tertiary">
+									{count} mention{count !== 1 ? "s" : ""}
+								</span>
+							</div>
+						))}
+						{Object.keys(stats?.people || {}).length === 0 && (
+							<p className="text-xs text-text-tertiary italic">No people mentioned yet</p>
+						)}
+					</div>
+				</motion.div>
+			</div>
+
+			{/* Recent thoughts */}
+			<motion.div
+				initial={{ opacity: 0, y: 12 }}
+				animate={{ opacity: 1, y: 0 }}
+				transition={{ duration: 0.5, delay: 0.4 }}
+				className="mt-8"
+			>
+				<h2 className="text-[11px] font-mono text-text-tertiary tracking-wider uppercase mb-4">
+					Recent
+				</h2>
+				<div className="space-y-2">
+					{recent.map((thought) => (
+						<a
+							key={thought.id}
+							href={`/thoughts/${thought.id}`}
+							className="block bg-surface-2 border border-border-subtle rounded-[var(--radius-sm)] p-4 hover:border-border-default transition-colors group"
+						>
+							<div className="flex items-start justify-between gap-4">
+								<p className="text-sm text-text-primary line-clamp-2 group-hover:text-amber-bright transition-colors">
+									{thought.content}
+								</p>
+								<span className="text-[10px] font-mono text-text-tertiary whitespace-nowrap mt-0.5">
+									{DateTime.fromISO(thought.created_at).toRelative()}
+								</span>
+							</div>
+							<div className="flex items-center gap-2 mt-2">
+								{thought.metadata?.type && (
+									<span className={`type-tag type-${thought.metadata.type}`}>
+										{thought.metadata.type.replace(/_/g, " ")}
+									</span>
+								)}
+								{thought.metadata?.topics?.slice(0, 3).map((t) => (
+									<span
+										key={t}
+										className="text-[10px] font-mono text-text-tertiary"
+									>
+										#{t}
+									</span>
+								))}
+							</div>
+						</a>
+					))}
+				</div>
+			</motion.div>
+		</div>
+	);
+}
