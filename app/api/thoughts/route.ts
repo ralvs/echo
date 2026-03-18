@@ -10,6 +10,7 @@ export async function GET(req: NextRequest) {
 	const topic = params.get("topic");
 	const person = params.get("person");
 	const days = params.get("days");
+	const status = params.get("status");
 
 	let query = supabase
 		.from("thoughts")
@@ -20,6 +21,7 @@ export async function GET(req: NextRequest) {
 	if (type) query = query.contains("metadata", { type });
 	if (topic) query = query.contains("metadata", { topics: [topic] });
 	if (person) query = query.contains("metadata", { people: [person] });
+	if (status) query = query.contains("metadata", { status });
 	if (days) {
 		const since = new Date();
 		since.setDate(since.getDate() - Number(days));

@@ -13,6 +13,7 @@ type ThoughtsState = {
 		topic?: string;
 		person?: string;
 		days?: number;
+		status?: string;
 	};
 	isLoading: boolean;
 

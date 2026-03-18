@@ -29,6 +29,7 @@ export default function ThoughtsPage() {
 		if (filters.topic) params.set("topic", filters.topic);
 		if (filters.person) params.set("person", filters.person);
 		if (filters.days) params.set("days", String(filters.days));
+		if (filters.status) params.set("status", filters.status);
 
 		try {
 			const res = await fetch(`/api/thoughts?${params}`);
@@ -130,6 +131,34 @@ export default function ThoughtsPage() {
 				>
 					<div className="flex items-center gap-1.5">
 						<span className="text-[10px] font-mono text-text-tertiary uppercase tracking-wider mr-1">
+							Status
+						</span>
+						{[
+							{ label: "All", value: undefined },
+							{ label: "Open", value: "open" },
+							{ label: "Resolved", value: "resolved" },
+						].map((s) => (
+							<button
+								key={s.label}
+								type="button"
+								onClick={() =>
+									setFilters({ ...filters, status: s.value })
+								}
+								className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
+									filters.status === s.value
+										? "bg-amber-glow/15 text-amber-bright border border-border-active"
+										: "bg-surface-3 text-text-secondary border border-transparent hover:border-border-subtle"
+								}`}
+							>
+								{s.label}
+							</button>
+						))}
+					</div>
+
+					<div className="w-px h-5 bg-border-subtle" />
+
+					<div className="flex items-center gap-1.5">
+						<span className="text-[10px] font-mono text-text-tertiary uppercase tracking-wider mr-1">
 							Type
 						</span>
 						<button
@@ -212,7 +241,13 @@ export default function ThoughtsPage() {
 									className="block bg-surface-2 border border-border-subtle rounded-[var(--radius-sm)] p-4 hover:border-border-default transition-all group"
 								>
 									<div className="flex items-start justify-between gap-4 mb-2">
-										<p className="text-sm text-text-primary line-clamp-2 group-hover:text-amber-bright transition-colors flex-1">
+										<p
+											className={`text-sm line-clamp-2 transition-colors flex-1 ${
+												thought.metadata?.status === "resolved"
+													? "text-text-tertiary line-through decoration-text-tertiary/40"
+													: "text-text-primary group-hover:text-amber-bright"
+											}`}
+										>
 											{thought.content}
 										</p>
 										<div className="flex items-center gap-2 shrink-0">
@@ -234,6 +269,17 @@ export default function ThoughtsPage() {
 									<div className="flex items-center gap-2">
 										{thought.metadata?.type && (
 											<TypeTag type={thought.metadata.type} />
+										)}
+										{thought.metadata?.status && (
+											<span
+												className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+													thought.metadata.status === "resolved"
+														? "text-success/70 bg-success/8"
+														: "text-warning/70 bg-warning/8"
+												}`}
+											>
+												{thought.metadata.status}
+											</span>
 										)}
 										{thought.metadata?.topics?.slice(0, 4).map((t) => (
 											<span

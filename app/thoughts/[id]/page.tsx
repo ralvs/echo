@@ -53,10 +53,26 @@ export default function ThoughtDetailPage({
 		setSaving(false);
 	};
 
+	const handleResolve = async () => {
+		if (!thought) return;
+		const newStatus = thought.metadata?.status === "resolved" ? "open" : "resolved";
+		const updated = await fetch(`/api/thoughts/${id}/resolve`, {
+			method: "PATCH",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ status: newStatus }),
+		}).then((r) => r.json());
+		setThought(updated);
+	};
+
 	const handleDelete = async () => {
 		await fetch(`/api/thoughts/${id}`, { method: "DELETE" });
 		router.push("/thoughts");
 	};
+
+	const isActionable =
+		thought?.metadata?.type === "task" ||
+		(thought?.metadata?.action_items?.length ?? 0) > 0;
+	const isResolved = thought?.metadata?.status === "resolved";
 
 	if (!thought) {
 		return (
@@ -108,6 +124,17 @@ export default function ThoughtDetailPage({
 						{thought.metadata?.type && (
 							<TypeTag type={thought.metadata.type} />
 						)}
+						{thought.metadata?.status && (
+							<span
+								className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+									thought.metadata.status === "resolved"
+										? "text-success border-success/30 bg-success/10"
+										: "text-warning border-warning/30 bg-warning/10"
+								}`}
+							>
+								{thought.metadata.status}
+							</span>
+						)}
 						{thought.version > 1 && (
 							<span className="text-[10px] font-mono text-text-tertiary bg-surface-3 px-2 py-0.5 rounded">
 								v{thought.version}
@@ -128,6 +155,19 @@ export default function ThoughtDetailPage({
 					</p>
 				</div>
 				<div className="flex items-center gap-2">
+					{isActionable && (
+						<button
+							type="button"
+							onClick={handleResolve}
+							className={`px-3 py-1.5 rounded-[var(--radius-sm)] border text-xs transition-colors ${
+								isResolved
+									? "bg-surface-3 border-border-subtle text-text-secondary hover:text-warning hover:border-warning/30"
+									: "bg-success/10 border-success/30 text-success hover:bg-success/20"
+							}`}
+						>
+							{isResolved ? "Reopen" : "Resolve"}
+						</button>
+					)}
 					{thought.version > 1 && (
 						<button
 							type="button"
@@ -192,7 +232,11 @@ export default function ThoughtDetailPage({
 						</div>
 					</div>
 				) : (
-					<p className="text-sm text-text-primary leading-relaxed whitespace-pre-wrap">
+					<p
+						className={`text-sm leading-relaxed whitespace-pre-wrap ${
+							isResolved ? "text-text-tertiary" : "text-text-primary"
+						}`}
+					>
 						{thought.content}
 					</p>
 				)}

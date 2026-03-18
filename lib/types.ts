@@ -1,3 +1,5 @@
+export type ThoughtStatus = "open" | "resolved";
+
 export type ThoughtMetadata = {
 	type?: string;
 	topics?: string[];
@@ -5,6 +7,8 @@ export type ThoughtMetadata = {
 	action_items?: string[];
 	dates_mentioned?: string[];
 	source?: string;
+	status?: ThoughtStatus;
+	resolved_at?: string;
 	[key: string]: unknown;
 };
 
