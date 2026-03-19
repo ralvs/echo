@@ -1,47 +1,74 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 
-const TYPES = ["observation", "task", "idea", "reference", "person_note"];
+type CapturedThought = {
+	id: string;
+	metadata: Record<string, unknown>;
+	category: string | null;
+	due_at: string | null;
+	priority: number | null;
+};
 
 export default function CapturePage() {
 	const router = useRouter();
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const [content, setContent] = useState("");
-	const [type, setType] = useState<string | undefined>();
-	const [topics, setTopics] = useState("");
 	const [saving, setSaving] = useState(false);
-	const [saved, setSaved] = useState(false);
+	const [result, setResult] = useState<CapturedThought | null>(null);
+
+	useEffect(() => {
+		textareaRef.current?.focus();
+	}, []);
+
+	// Auto-resize textarea
+	useEffect(() => {
+		const el = textareaRef.current;
+		if (!el) return;
+		el.style.height = "auto";
+		el.style.height = `${Math.max(160, el.scrollHeight)}px`;
+	}, [content]);
 
 	const handleCapture = async () => {
-		if (!content.trim()) return;
+		if (!content.trim() || saving) return;
 		setSaving(true);
+		setResult(null);
 
-		const metadata: Record<string, unknown> = { source: "echo" };
-		if (type) metadata.type = type;
-		if (topics.trim()) {
-			metadata.topics = topics
-				.split(",")
-				.map((t) => t.trim())
-				.filter(Boolean);
+		try {
+			const res = await fetch("/api/thoughts", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ content }),
+			});
+			const data = await res.json();
+
+			if (res.ok) {
+				setResult(data);
+				setTimeout(() => {
+					setContent("");
+					setResult(null);
+					textareaRef.current?.focus();
+				}, 3000);
+			}
+		} finally {
+			setSaving(false);
 		}
-
-		await fetch("/api/thoughts", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ content, metadata }),
-		});
-
-		setSaving(false);
-		setSaved(true);
-		setTimeout(() => {
-			setContent("");
-			setType(undefined);
-			setTopics("");
-			setSaved(false);
-		}, 1500);
 	};
+
+	const handleKeyDown = (e: React.KeyboardEvent) => {
+		if (e.key === "Enter" && e.metaKey) {
+			e.preventDefault();
+			handleCapture();
+		}
+	};
+
+	const metadata = result?.metadata as Record<string, unknown> | undefined;
+	const type = metadata?.type as string | undefined;
+	const topics = metadata?.topics as string[] | undefined;
+	const people = metadata?.people as string[] | undefined;
+	const actionItems = metadata?.action_items as string[] | undefined;
 
 	return (
 		<div className="p-8 max-w-[700px]">
@@ -54,7 +81,7 @@ export default function CapturePage() {
 					Capture
 				</h1>
 				<p className="text-text-secondary text-sm">
-					Write a thought. It gets embedded and tagged automatically.
+					Just write. Echo handles the rest.
 				</p>
 			</motion.div>
 
@@ -62,92 +89,72 @@ export default function CapturePage() {
 				initial={{ opacity: 0, y: 8 }}
 				animate={{ opacity: 1, y: 0 }}
 				transition={{ delay: 0.05 }}
-				className="space-y-5"
+				className="space-y-4"
 			>
-				{/* Content */}
-				<div>
-					<label
-						htmlFor="thought-content"
-						className="block text-[10px] font-mono text-text-tertiary uppercase tracking-wider mb-2"
-					>
-						Thought
-					</label>
+				<div className="relative">
 					<textarea
+						ref={textareaRef}
 						id="thought-content"
+						aria-label="Your thought"
 						value={content}
 						onChange={(e) => setContent(e.target.value)}
-						rows={6}
-						placeholder="What's on your mind? Decisions, observations, ideas, notes about people..."
-						className="w-full bg-surface-2 border border-border-subtle rounded-[var(--radius-md)] p-4 text-sm text-text-primary placeholder:text-text-tertiary focus:border-border-active focus:outline-none transition-colors resize-y font-body leading-relaxed"
+						onKeyDown={handleKeyDown}
+						placeholder="Decisions, observations, tasks, notes about people, reminders with dates — just write naturally..."
+						disabled={saving}
+						className="w-full min-h-[160px] bg-surface-2 border border-border-subtle rounded-[var(--radius-md)] p-5 text-[15px] text-text-primary placeholder:text-text-tertiary focus:border-border-active focus:outline-none transition-colors resize-none font-body leading-relaxed disabled:opacity-50"
 					/>
-				</div>
 
-				{/* Type override */}
-				<div>
-					<label className="block text-[10px] font-mono text-text-tertiary uppercase tracking-wider mb-2">
-						Type{" "}
-						<span className="text-text-tertiary/60 normal-case">
-							(optional — auto-detected if blank)
-						</span>
-					</label>
-					<div className="flex flex-wrap gap-1.5">
-						{TYPES.map((t) => (
-							<button
-								key={t}
-								type="button"
-								onClick={() => setType(type === t ? undefined : t)}
-								className={`px-3 py-1.5 rounded-full text-xs capitalize transition-colors ${
-									type === t
-										? "bg-amber-glow/15 text-amber-bright border border-border-active"
-										: "bg-surface-3 text-text-secondary border border-transparent hover:border-border-subtle"
-								}`}
+					{/* Processing indicator */}
+					<AnimatePresence>
+						{saving && (
+							<motion.div
+								initial={{ opacity: 0 }}
+								animate={{ opacity: 1 }}
+								exit={{ opacity: 0 }}
+								className="absolute inset-0 rounded-[var(--radius-md)] pointer-events-none overflow-hidden"
 							>
-								{t.replace(/_/g, " ")}
-							</button>
-						))}
-					</div>
+								<div className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden">
+									<motion.div
+										className="h-full w-1/3 bg-gradient-to-r from-transparent via-amber-glow to-transparent"
+										animate={{ x: ["-100%", "400%"] }}
+										transition={{
+											repeat: Infinity,
+											duration: 1.5,
+											ease: "linear",
+										}}
+									/>
+								</div>
+							</motion.div>
+						)}
+					</AnimatePresence>
 				</div>
 
-				{/* Topics */}
-				<div>
-					<label
-						htmlFor="topics"
-						className="block text-[10px] font-mono text-text-tertiary uppercase tracking-wider mb-2"
-					>
-						Topics{" "}
-						<span className="text-text-tertiary/60 normal-case">
-							(optional — comma-separated)
-						</span>
-					</label>
-					<input
-						id="topics"
-						type="text"
-						value={topics}
-						onChange={(e) => setTopics(e.target.value)}
-						placeholder="e.g. career, project-x, q2-planning"
-						className="w-full bg-surface-2 border border-border-subtle rounded-[var(--radius-sm)] px-4 py-2.5 text-sm text-text-primary placeholder:text-text-tertiary focus:border-border-active focus:outline-none transition-colors"
-					/>
-				</div>
-
-				{/* Submit */}
-				<div className="flex items-center gap-3 pt-2">
+				{/* Actions */}
+				<div className="flex items-center justify-between">
 					<button
 						type="button"
 						onClick={handleCapture}
 						disabled={!content.trim() || saving}
 						className="px-6 py-2.5 rounded-[var(--radius-sm)] bg-amber-glow text-text-inverse text-sm font-medium hover:bg-amber-bright transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
 					>
-						{saving ? "Capturing..." : "Capture thought"}
+						{saving ? "Processing..." : "Capture"}
 					</button>
 
-					<AnimatePresence>
-						{saved && (
-							<motion.span
-								initial={{ opacity: 0, x: -8 }}
-								animate={{ opacity: 1, x: 0 }}
-								exit={{ opacity: 0 }}
-								className="text-sm text-success flex items-center gap-1.5"
-							>
+					<span className="text-[11px] text-text-tertiary font-mono">
+						{saving ? "extracting metadata & embedding…" : "⌘ Enter"}
+					</span>
+				</div>
+
+				{/* Result feedback */}
+				<AnimatePresence>
+					{result && (
+						<motion.div
+							initial={{ opacity: 0, y: 8 }}
+							animate={{ opacity: 1, y: 0 }}
+							exit={{ opacity: 0, y: -4 }}
+							className="bg-surface-2 border border-border-subtle rounded-[var(--radius-md)] p-4 space-y-3"
+						>
+							<div className="flex items-center gap-2">
 								<svg
 									width="16"
 									height="16"
@@ -157,21 +164,67 @@ export default function CapturePage() {
 									strokeWidth="2"
 									strokeLinecap="round"
 									strokeLinejoin="round"
+									className="text-success"
 								>
 									<path d="M20 6L9 17l-5-5" />
 								</svg>
-								Saved
-							</motion.span>
-						)}
-					</AnimatePresence>
-				</div>
+								<span className="text-sm text-text-primary font-medium">
+									Captured
+								</span>
+								{type && (
+									<span className={`type-tag type-${type}`}>{type.replace(/_/g, " ")}</span>
+								)}
+							</div>
 
-				{/* Hint */}
-				<p className="text-[11px] text-text-tertiary leading-relaxed pt-2">
-					Thoughts captured here don't generate embeddings automatically —
-					they're stored as-is. For full embedding + metadata extraction,
-					capture via your AI client (Claude, ChatGPT) using the MCP server.
-				</p>
+							{/* Extracted metadata summary */}
+							<div className="flex flex-wrap gap-1.5">
+								{result.category && (
+									<span className="px-2 py-0.5 text-[11px] font-mono rounded-full bg-surface-3 text-text-secondary border border-border-subtle">
+										{result.category}
+									</span>
+								)}
+								{topics?.map((t) => (
+									<span
+										key={t}
+										className="px-2 py-0.5 text-[11px] font-mono rounded-full bg-amber-faint text-amber-dim"
+									>
+										{t}
+									</span>
+								))}
+								{people?.map((p) => (
+									<span
+										key={p}
+										className="px-2 py-0.5 text-[11px] font-mono rounded-full bg-surface-3 text-text-secondary"
+									>
+										@{p}
+									</span>
+								))}
+								{result.due_at && (
+									<span className="px-2 py-0.5 text-[11px] font-mono rounded-full bg-amber-glow/10 text-amber-bright">
+										due {new Date(result.due_at).toLocaleDateString()}
+									</span>
+								)}
+								{result.priority !== null && result.priority > 0 && (
+									<span className="px-2 py-0.5 text-[11px] font-mono rounded-full bg-danger/15 text-danger">
+										{["", "low", "medium", "high", "urgent"][result.priority]}
+									</span>
+								)}
+							</div>
+
+							{/* Action items */}
+							{actionItems && actionItems.length > 0 && (
+								<div className="text-[12px] text-text-secondary space-y-0.5">
+									{actionItems.map((item, i) => (
+										<div key={i} className="flex items-start gap-1.5">
+											<span className="text-text-tertiary mt-px">→</span>
+											<span>{item}</span>
+										</div>
+									))}
+								</div>
+							)}
+						</motion.div>
+					)}
+				</AnimatePresence>
 			</motion.div>
 		</div>
 	);

@@ -1,4 +1,5 @@
 import { createServiceClient } from "@/lib/supabase";
+import { extractMetadata, getEmbedding } from "@/lib/ai";
 import { NextRequest, NextResponse } from "next/server";
 
 const THOUGHT_COLUMNS = "id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at";
@@ -69,14 +70,58 @@ export async function POST(req: NextRequest) {
 	const supabase = createServiceClient();
 	const body = await req.json();
 
+	const text = body.content;
+	if (!text?.trim()) {
+		return NextResponse.json({ error: "Content is required" }, { status: 400 });
+	}
+
+	// Run AI processing in parallel: embedding + metadata extraction
+	const [embedding, extracted] = await Promise.all([
+		getEmbedding(text),
+		extractMetadata(text),
+	]);
+
+	// Separate real columns from metadata
+	const extractedCategory = extracted.category as string | null;
+	delete extracted.category;
+	const extractedDueAt = extracted.due_at as string | null;
+	delete extracted.due_at;
+	const extractedRecurrence = extracted.recurrence as Record<string, unknown> | null;
+	delete extracted.recurrence;
+	const extractedPriority = extracted.priority as number | null;
+	delete extracted.priority;
+
+	// Build metadata — caller overrides take precedence
+	const metadata = { ...extracted, source: "echo" } as Record<string, unknown>;
+	if (body.metadata?.type) metadata.type = body.metadata.type;
+	if (body.metadata?.topics) metadata.topics = body.metadata.topics;
+
+	// Auto-set status for actionable thoughts
+	const effectiveType = metadata.type as string;
+	const effectiveDueAt = body.due_at || extractedDueAt;
+	if (
+		effectiveType === "task" ||
+		effectiveDueAt ||
+		(Array.isArray(metadata.action_items) && metadata.action_items.length > 0)
+	) {
+		metadata.status = "open";
+	}
+
 	const row: Record<string, unknown> = {
-		content: body.content,
-		metadata: body.metadata || {},
+		content: text,
+		embedding,
+		metadata,
 	};
-	if (body.due_at) row.due_at = body.due_at;
-	if (body.recurrence) row.recurrence = body.recurrence;
-	if (body.priority !== undefined) row.priority = body.priority;
-	if (body.category) row.category = body.category;
+
+	// Real columns — caller overrides > extracted values
+	if (body.due_at || extractedDueAt) row.due_at = body.due_at || extractedDueAt;
+	if (body.recurrence || extractedRecurrence) row.recurrence = body.recurrence || extractedRecurrence;
+	if (body.priority !== undefined) {
+		row.priority = body.priority;
+	} else if (extractedPriority && extractedPriority > 0) {
+		row.priority = extractedPriority;
+	}
+	row.category = body.category || extractedCategory || null;
 
 	const { data, error } = await supabase
 		.from("thoughts")
