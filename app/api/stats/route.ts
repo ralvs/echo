@@ -10,12 +10,16 @@ export async function GET() {
 
 	const { data } = await supabase
 		.from("thoughts")
-		.select("metadata, created_at")
+		.select("metadata, created_at, category, priority, due_at, recurrence")
 		.order("created_at", { ascending: false });
 
 	const types: Record<string, number> = {};
 	const topics: Record<string, number> = {};
 	const people: Record<string, number> = {};
+	const categories: Record<string, number> = {};
+	let overdueCount = 0;
+	let recurringCount = 0;
+	const now = new Date();
 
 	for (const r of data || []) {
 		const m = (r.metadata || {}) as Record<string, unknown>;
@@ -24,6 +28,9 @@ export async function GET() {
 			for (const t of m.topics) topics[t as string] = (topics[t as string] || 0) + 1;
 		if (Array.isArray(m.people))
 			for (const p of m.people) people[p as string] = (people[p as string] || 0) + 1;
+		if (r.category) categories[r.category] = (categories[r.category] || 0) + 1;
+		if (r.recurrence) recurringCount++;
+		if (r.due_at && new Date(r.due_at) < now && m.status === "open") overdueCount++;
 	}
 
 	const dateRange =
@@ -37,5 +44,8 @@ export async function GET() {
 		types,
 		topics,
 		people,
+		categories,
+		overdueCount,
+		recurringCount,
 	});
 }

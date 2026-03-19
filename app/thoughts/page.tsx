@@ -30,6 +30,10 @@ export default function ThoughtsPage() {
 		if (filters.person) params.set("person", filters.person);
 		if (filters.days) params.set("days", String(filters.days));
 		if (filters.status) params.set("status", filters.status);
+		if (filters.category) params.set("category", filters.category);
+		if (filters.priority) params.set("priority", String(filters.priority));
+		if (filters.overdue) params.set("overdue", "true");
+		if (filters.order_by) params.set("order_by", filters.order_by);
 
 		try {
 			const res = await fetch(`/api/thoughts?${params}`);
@@ -266,7 +270,7 @@ export default function ThoughtsPage() {
 											</span>
 										</div>
 									</div>
-									<div className="flex items-center gap-2">
+									<div className="flex items-center gap-2 flex-wrap">
 										{thought.metadata?.type && (
 											<TypeTag type={thought.metadata.type} />
 										)}
@@ -279,6 +283,42 @@ export default function ThoughtsPage() {
 												}`}
 											>
 												{thought.metadata.status}
+											</span>
+										)}
+										{thought.priority != null && thought.priority > 0 && (
+											<span
+												className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+													thought.priority >= 4
+														? "text-danger bg-danger/10"
+														: thought.priority >= 3
+															? "text-warning bg-warning/10"
+															: "text-text-tertiary bg-surface-3"
+												}`}
+											>
+												{["", "low", "med", "high", "urgent"][thought.priority]}
+											</span>
+										)}
+										{thought.due_at && (
+											<span
+												className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
+													new Date(thought.due_at) < new Date() && thought.metadata?.status !== "resolved"
+														? "text-danger bg-danger/10"
+														: "text-text-secondary bg-surface-3"
+												}`}
+											>
+												{new Date(thought.due_at) < new Date() && thought.metadata?.status !== "resolved"
+													? "overdue"
+													: `due ${DateTime.fromISO(thought.due_at).toRelative()}`}
+											</span>
+										)}
+										{thought.recurrence && (
+											<span className="text-[10px] font-mono text-text-tertiary" title="Recurring">
+												↻
+											</span>
+										)}
+										{thought.category && (
+											<span className="text-[10px] font-mono text-text-tertiary bg-surface-3 px-1.5 py-0.5 rounded-full">
+												{thought.category}
 											</span>
 										)}
 										{thought.metadata?.topics?.slice(0, 4).map((t) => (

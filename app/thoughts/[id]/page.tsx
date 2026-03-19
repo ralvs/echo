@@ -71,7 +71,8 @@ export default function ThoughtDetailPage({
 
 	const isActionable =
 		thought?.metadata?.type === "task" ||
-		(thought?.metadata?.action_items?.length ?? 0) > 0;
+		(thought?.metadata?.action_items?.length ?? 0) > 0 ||
+		thought?.due_at != null;
 	const isResolved = thought?.metadata?.status === "resolved";
 
 	if (!thought) {
@@ -120,7 +121,7 @@ export default function ThoughtDetailPage({
 				className="flex items-start justify-between mb-6"
 			>
 				<div>
-					<div className="flex items-center gap-3 mb-2">
+					<div className="flex items-center gap-3 mb-2 flex-wrap">
 						{thought.metadata?.type && (
 							<TypeTag type={thought.metadata.type} />
 						)}
@@ -133,6 +134,29 @@ export default function ThoughtDetailPage({
 								}`}
 							>
 								{thought.metadata.status}
+							</span>
+						)}
+						{thought.priority != null && thought.priority > 0 && (
+							<span
+								className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
+									thought.priority >= 4
+										? "text-danger border-danger/30 bg-danger/10"
+										: thought.priority >= 3
+											? "text-warning border-warning/30 bg-warning/10"
+											: "text-text-secondary border-border-subtle bg-surface-3"
+								}`}
+							>
+								{["", "low", "medium", "high", "urgent"][thought.priority]}
+							</span>
+						)}
+						{thought.category && (
+							<span className="text-[10px] font-mono text-text-secondary bg-surface-3 px-2 py-0.5 rounded-full border border-border-subtle">
+								{thought.category}
+							</span>
+						)}
+						{thought.recurrence && (
+							<span className="text-[10px] font-mono text-text-secondary bg-surface-3 px-2 py-0.5 rounded-full border border-border-subtle" title="Recurring">
+								↻ recurring
 							</span>
 						)}
 						{thought.version > 1 && (
@@ -299,6 +323,84 @@ export default function ThoughtDetailPage({
 					</div>
 				) : null}
 			</motion.div>
+
+			{/* Scheduling info */}
+			{(thought.due_at || thought.priority || thought.category || thought.recurrence) && (
+				<motion.div
+					initial={{ opacity: 0, y: 8 }}
+					animate={{ opacity: 1, y: 0 }}
+					transition={{ delay: 0.2 }}
+					className="bg-surface-2 border border-border-subtle rounded-[var(--radius-sm)] p-4 mb-6"
+				>
+					<h3 className="text-[10px] font-mono text-text-tertiary uppercase tracking-wider mb-2.5">
+						Scheduling
+					</h3>
+					<div className="flex flex-wrap gap-3 text-sm">
+						{thought.due_at && (
+							<div>
+								<span className="text-text-tertiary text-xs">Due: </span>
+								<span
+									className={
+										new Date(thought.due_at) < new Date() && thought.metadata?.status !== "resolved"
+											? "text-danger"
+											: "text-text-primary"
+									}
+								>
+									{DateTime.fromISO(thought.due_at).toFormat("LLL d, yyyy")}
+									{" "}
+									<span className="text-text-tertiary text-xs">
+										({DateTime.fromISO(thought.due_at).toRelative()})
+									</span>
+								</span>
+							</div>
+						)}
+						{thought.priority != null && thought.priority > 0 && (
+							<div>
+								<span className="text-text-tertiary text-xs">Priority: </span>
+								<span
+									className={
+										thought.priority >= 4
+											? "text-danger"
+											: thought.priority >= 3
+												? "text-warning"
+												: "text-text-primary"
+									}
+								>
+									{["", "low", "medium", "high", "urgent"][thought.priority]}
+								</span>
+							</div>
+						)}
+						{thought.category && (
+							<div>
+								<span className="text-text-tertiary text-xs">Category: </span>
+								<span className="text-text-primary">{thought.category}</span>
+							</div>
+						)}
+						{thought.recurrence && (
+							<div>
+								<span className="text-text-tertiary text-xs">Repeats: </span>
+								<span className="text-text-primary">
+									every {thought.recurrence.interval_days} {thought.recurrence.unit || "day"}(s)
+								</span>
+							</div>
+						)}
+						{thought.metadata?.completion_count != null && (thought.metadata.completion_count as number) > 0 && (
+							<div>
+								<span className="text-text-tertiary text-xs">Completions: </span>
+								<span className="text-text-primary">{thought.metadata.completion_count as number}</span>
+							</div>
+						)}
+						{thought.metadata?.last_completed && (
+							<div>
+								<span className="text-text-tertiary text-xs">Last completed: </span>
+								<span className="text-text-primary">
+									{DateTime.fromISO(thought.metadata.last_completed).toRelative()}
+								</span>
+							</div>
+						)}
+					</div>
+				</motion.div>
+			)}
 
 			{/* ID for reference */}
 			<div className="text-[10px] font-mono text-text-tertiary">

@@ -1,5 +1,13 @@
 export type ThoughtStatus = "open" | "resolved";
 
+export type RecurrenceRule = {
+	interval_days?: number;
+	unit?: "day" | "week" | "month";
+	days_of_week?: number[];
+	day_of_month?: number;
+	end_at?: string;
+};
+
 export type ThoughtMetadata = {
 	type?: string;
 	topics?: string[];
@@ -9,6 +17,13 @@ export type ThoughtMetadata = {
 	source?: string;
 	status?: ThoughtStatus;
 	resolved_at?: string;
+	location?: string;
+	cost?: number;
+	url?: string;
+	rating?: number;
+	contacts?: { name: string; role?: string; phone?: string; email?: string }[];
+	last_completed?: string;
+	completion_count?: number;
 	[key: string]: unknown;
 };
 
@@ -17,6 +32,10 @@ export type Thought = {
 	content: string;
 	metadata: ThoughtMetadata;
 	version: number;
+	due_at: string | null;
+	recurrence: RecurrenceRule | null;
+	priority: number | null;
+	category: string | null;
 	created_at: string;
 	updated_at: string;
 };

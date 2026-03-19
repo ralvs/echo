@@ -14,6 +14,10 @@ type ThoughtsState = {
 		person?: string;
 		days?: number;
 		status?: string;
+		category?: string;
+		priority?: number;
+		overdue?: boolean;
+		order_by?: "created_at" | "due_at" | "priority";
 	};
 	isLoading: boolean;
 
