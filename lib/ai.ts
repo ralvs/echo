@@ -6,6 +6,29 @@ function getApiKey() {
 	return key;
 }
 
+function getExtractionPrompt() {
+	const now = new Date().toISOString();
+	return `Current date and time is ${now}. Use this to resolve relative dates and times (e.g. "next Monday", "tomorrow", "in 2 hours", "this afternoon") into absolute datetimes.
+
+Extract metadata from the user's captured thought. Return JSON with:
+- "people": array of people mentioned (empty if none)
+- "action_items": array of implied to-dos (empty if none)
+- "dates_mentioned": array of dates YYYY-MM-DD (empty if none)
+- "topics": array of 1-3 short topic tags (always at least one)
+- "type": one of "observation", "task", "idea", "reference", "person_note"
+- "category": a single domain category if clearly applicable (e.g. "plumbing", "italian", "gardening", "electrical", "baking"). null if not domain-specific.
+- "location": physical location if mentioned (e.g. "garage", "kitchen", "school"). null if none.
+- "cost": numeric dollar amount if mentioned (e.g. 150). null if none.
+- "url": URL if mentioned. null if none.
+- "rating": numeric 1-5 rating if expressed (e.g. "great" = 5, "terrible" = 1). null if no sentiment about a service/product.
+- "contacts": array of contact objects {name, role?, phone?, email?} if vendor/service provider/contact info is mentioned. Empty array if none.
+- "due_at": if a single clear due/deadline date is mentioned, return it as ISO 8601 datetime (e.g. "2026-04-01T00:00:00Z"). null if no due date or if multiple distinct items have different due dates.
+- "recurrence": if a repeating schedule is described, return an object with "interval_days" (number) and/or "unit" ("day"|"week"|"month"). null if not recurring.
+- "priority": 0-4 (0=none, 1=low, 2=medium, 3=high, 4=urgent) based on urgency expressed. 0 if not expressed.
+Only extract what's explicitly there. Do not infer or fabricate. Resolve relative dates using today's date.
+Return ONLY valid JSON, no markdown fences or extra text.`;
+}
+
 export async function getEmbedding(text: string): Promise<number[]> {
 	const r = await fetch(`${OPENROUTER_BASE}/embeddings`, {
 		method: "POST",
@@ -36,36 +59,29 @@ export async function extractMetadata(
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({
-			model: "openai/gpt-4o-mini",
+			model: "anthropic/claude-haiku-4-5",
+			max_tokens: 1024,
 			response_format: { type: "json_object" },
 			messages: [
-				{
-					role: "system",
-					content: `Extract metadata from the user's captured thought. Return JSON with:
-- "people": array of people mentioned (empty if none)
-- "action_items": array of implied to-dos (empty if none)
-- "dates_mentioned": array of dates YYYY-MM-DD (empty if none)
-- "topics": array of 1-3 short topic tags (always at least one)
-- "type": one of "observation", "task", "idea", "reference", "person_note"
-- "category": a single domain category if clearly applicable (e.g. "plumbing", "italian", "gardening", "electrical", "baking"). null if not domain-specific.
-- "location": physical location if mentioned (e.g. "garage", "kitchen", "school"). null if none.
-- "cost": numeric dollar amount if mentioned (e.g. 150). null if none.
-- "url": URL if mentioned. null if none.
-- "rating": numeric 1-5 rating if expressed (e.g. "great" = 5, "terrible" = 1). null if no sentiment about a service/product.
-- "contacts": array of contact objects {name, role?, phone?, email?} if vendor/service provider/contact info is mentioned. Empty array if none.
-- "due_at": if a single clear due/deadline date is mentioned, return it as ISO 8601 datetime (e.g. "2026-04-01T00:00:00Z"). null if no due date or if multiple distinct items have different due dates.
-- "recurrence": if a repeating schedule is described, return an object with "interval_days" (number) and/or "unit" ("day"|"week"|"month"). null if not recurring.
-- "priority": 0-4 (0=none, 1=low, 2=medium, 3=high, 4=urgent) based on urgency expressed. 0 if not expressed.
-Only extract what's explicitly there. Do not infer or fabricate.`,
-				},
+				{ role: "system", content: getExtractionPrompt() },
 				{ role: "user", content: text },
 			],
 		}),
 	});
+
+	if (!r.ok) {
+		const msg = await r.text().catch(() => "");
+		console.error(`OpenRouter extraction failed: ${r.status} ${msg}`);
+		return { topics: ["uncategorized"], type: "observation" };
+	}
+
 	const d = await r.json();
 	try {
-		return JSON.parse(d.choices[0].message.content);
-	} catch {
+		const raw = d.choices[0].message.content as string;
+		const clean = raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+		return JSON.parse(clean);
+	} catch (err) {
+		console.error("Failed to parse extraction response:", err);
 		return { topics: ["uncategorized"], type: "observation" };
 	}
 }
