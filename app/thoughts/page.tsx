@@ -331,7 +331,7 @@ export default function ThoughtsPage() {
 										))}
 										{thought.metadata?.people?.length ? (
 											<span className="text-[10px] text-text-tertiary ml-auto">
-												{thought.metadata.people.join(", ")}
+												{thought.metadata.people.map((p: unknown) => typeof p === "string" ? p : (p as Record<string, unknown>)?.name || "").join(", ")}
 											</span>
 										) : null}
 									</div>

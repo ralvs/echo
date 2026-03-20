@@ -291,14 +291,17 @@ export default function ThoughtDetailPage({
 							People
 						</h3>
 						<div className="flex flex-wrap gap-1.5">
-							{thought.metadata.people.map((p) => (
-								<span
-									key={p}
-									className="text-sm text-text-primary"
-								>
-									{p}
-								</span>
-							))}
+							{thought.metadata.people.map((p: unknown) => {
+								const name = typeof p === "string" ? p : (p as Record<string, unknown>)?.name as string || "";
+								return (
+									<span
+										key={name}
+										className="text-sm text-text-primary"
+									>
+										{name}
+									</span>
+								);
+							})}
 						</div>
 					</div>
 				) : null}

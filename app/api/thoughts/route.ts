@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
 	let query = supabase
 		.from("thoughts")
 		.select(THOUGHT_COLUMNS)
+		.or("is_bundle.is.null,is_bundle.eq.false")
 		.limit(limit);
 
 	// Sorting
