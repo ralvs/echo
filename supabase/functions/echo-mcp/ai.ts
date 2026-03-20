@@ -47,7 +47,6 @@ Extract metadata from the user's captured thought. Return JSON with:
 - "cost": numeric dollar amount if mentioned (e.g. 150). null if none.
 - "url": URL if mentioned. null if none.
 - "rating": numeric 1-5 rating if expressed (e.g. "great" = 5, "terrible" = 1). null if no sentiment about a service/product.
-- "contacts": array of contact objects {name, role?, phone?, email?} if vendor/service provider/contact info is mentioned. Empty array if none.
 - "due_at": if a single clear due/deadline date is mentioned, return it as ISO 8601 datetime (e.g. "2026-04-01T00:00:00Z"). null if no due date or if multiple distinct items have different due dates.
 - "recurrence": if a repeating schedule is described, return an object with "interval_days" (number) and/or "unit" ("day"|"week"|"month"). null if not recurring.
 - "priority": 0-4 (0=none, 1=low, 2=medium, 3=high, 4=urgent) based on urgency expressed. 0 if not expressed.

@@ -21,7 +21,6 @@ export type ThoughtMetadata = {
 	cost?: number;
 	url?: string;
 	rating?: number;
-	contacts?: { name: string; role?: string; phone?: string; email?: string }[];
 	last_completed?: string;
 	completion_count?: number;
 	[key: string]: unknown;
