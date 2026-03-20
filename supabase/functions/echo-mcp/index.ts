@@ -4,140 +4,18 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { Hono } from "hono";
 import { z } from "zod";
-import { createClient } from "@supabase/supabase-js";
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY")!;
-const MCP_ACCESS_KEY = Deno.env.get("MCP_ACCESS_KEY")!;
 
-const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-const PRIORITY_LABELS: Record<number, string> = {
-	0: "none",
-	1: "low",
-	2: "medium",
-	3: "high",
-	4: "urgent",
-};
-
-async function getEmbedding(text: string): Promise<number[]> {
-	const r = await fetch(`${OPENROUTER_BASE}/embeddings`, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			model: "openai/text-embedding-3-small",
-			input: text,
-		}),
-	});
-	if (!r.ok) {
-		const msg = await r.text().catch(() => "");
-		throw new Error(`OpenRouter embeddings failed: ${r.status} ${msg}`);
-	}
-	const d = await r.json();
-	return d.data[0].embedding;
-}
-
-async function extractMetadata(text: string): Promise<Record<string, unknown>> {
-	const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			model: "anthropic/claude-haiku-4-5",
-			max_tokens: 1024,
-			response_format: { type: "json_object" },
-			messages: [
-				{
-					role: "system",
-					content: `Current date and time is ${new Date().toISOString()}. Use this to resolve relative dates and times (e.g. "next Monday", "tomorrow", "in 2 hours", "this afternoon") into absolute datetimes.
-
-Extract metadata from the user's captured thought. Return JSON with:
-- "people": array of people mentioned (empty if none)
-- "action_items": array of implied to-dos (empty if none)
-- "dates_mentioned": array of dates YYYY-MM-DD (empty if none)
-- "topics": array of 1-3 short topic tags (always at least one)
-- "type": one of "observation", "task", "idea", "reference", "person_note"
-- "category": a single domain category if clearly applicable (e.g. "plumbing", "italian", "gardening", "electrical", "baking"). null if not domain-specific.
-- "location": physical location if mentioned (e.g. "garage", "kitchen", "school"). null if none.
-- "cost": numeric dollar amount if mentioned (e.g. 150). null if none.
-- "url": URL if mentioned. null if none.
-- "rating": numeric 1-5 rating if expressed (e.g. "great" = 5, "terrible" = 1). null if no sentiment about a service/product.
-- "contacts": array of contact objects {name, role?, phone?, email?} if vendor/service provider/contact info is mentioned. Empty array if none.
-- "due_at": if a single clear due/deadline date is mentioned, return it as ISO 8601 datetime (e.g. "2026-04-01T00:00:00Z"). null if no due date or if multiple distinct items have different due dates.
-- "recurrence": if a repeating schedule is described, return an object with "interval_days" (number) and/or "unit" ("day"|"week"|"month"). null if not recurring.
-- "priority": 0-4 (0=none, 1=low, 2=medium, 3=high, 4=urgent) based on urgency expressed. 0 if not expressed.
-Only extract what's explicitly there. Do not infer or fabricate. Resolve relative dates using today's date.
-Return ONLY valid JSON, no markdown fences or extra text.`,
-				},
-				{ role: "user", content: text },
-			],
-		}),
-	});
-
-	if (!r.ok) {
-		const msg = await r.text().catch(() => "");
-		console.error(`OpenRouter extraction failed: ${r.status} ${msg}`);
-		return { topics: ["uncategorized"], type: "observation" };
-	}
-
-	const d = await r.json();
-	try {
-		const raw = d.choices[0].message.content as string;
-		const clean = raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-		return JSON.parse(clean);
-	} catch {
-		return { topics: ["uncategorized"], type: "observation" };
-	}
-}
-
-// --- Recurrence helpers ---
-
-type RecurrenceRule = {
-	interval_days?: number;
-	unit?: "day" | "week" | "month";
-	days_of_week?: number[];
-	day_of_month?: number;
-	end_at?: string;
-};
-
-function calculateNextDue(currentDue: Date, rule: RecurrenceRule): Date {
-	const now = new Date();
-	// Start from whichever is later: current due or now (handles overdue case)
-	const next = new Date(Math.max(currentDue.getTime(), now.getTime()));
-
-	if (rule.unit === "month") {
-		next.setMonth(next.getMonth() + (rule.interval_days || 1));
-		if (rule.day_of_month) next.setDate(rule.day_of_month);
-	} else {
-		next.setDate(next.getDate() + (rule.interval_days || 1));
-	}
-
-	// If days_of_week specified, advance to the next matching day
-	if (rule.days_of_week?.length) {
-		const isoDay = (d: Date) => d.getDay() || 7; // Convert Sun=0 to Sun=7
-		while (!rule.days_of_week.includes(isoDay(next))) {
-			next.setDate(next.getDate() + 1);
-		}
-	}
-
-	return next;
-}
+import { supabase, MCP_ACCESS_KEY, DECOMPOSE_ENABLED, PRIORITY_LABELS } from "./config.ts";
+import { getEmbedding, extractMetadata, decomposeWithLLM } from "./ai.ts";
+import { shouldDecompose, saveSingleThought } from "./decompose.ts";
+import { type RecurrenceRule, calculateNextDue } from "./recurrence.ts";
 
 // --- MCP Server Factory (stateless: new instance per request) ---
-// Must create a fresh McpServer per request because server.connect()
-// can only be called once per server instance. The module-level supabase client
-// and helper functions are shared safely across requests.
 
 function createServer(): McpServer {
 	const server = new McpServer({
 		name: "echo",
-		version: "2.0.0",
+		version: "3.0.0",
 	});
 
 	// Tool 1: Semantic Search
@@ -170,13 +48,18 @@ function createServer(): McpServer {
 					};
 				}
 
-				if (!data || data.length === 0) {
+				// Exclude bundle parents from search results
+				const filtered = (data || []).filter(
+					(t: { is_bundle?: boolean }) => !t.is_bundle,
+				);
+
+				if (filtered.length === 0) {
 					return {
 						content: [{ type: "text" as const, text: `No thoughts found matching "${query}".` }],
 					};
 				}
 
-				const results = data.map(
+				const results = filtered.map(
 					(
 						t: {
 							id: string;
@@ -216,7 +99,7 @@ function createServer(): McpServer {
 					content: [
 						{
 							type: "text" as const,
-							text: `Found ${data.length} thought(s):\n\n${results.join("\n\n")}`,
+							text: `Found ${filtered.length} thought(s):\n\n${results.join("\n\n")}`,
 						},
 					],
 				};
@@ -270,6 +153,9 @@ function createServer(): McpServer {
 					.from("thoughts")
 					.select("id, content, metadata, created_at, due_at, priority, category, recurrence")
 					.limit(limit);
+
+				// Exclude bundle parents by default
+				q = q.or("is_bundle.is.null,is_bundle.eq.false");
 
 				// Sorting
 				if (order_by === "due_at") {
@@ -375,11 +261,13 @@ function createServer(): McpServer {
 			try {
 				const { count } = await supabase
 					.from("thoughts")
-					.select("*", { count: "exact", head: true });
+					.select("*", { count: "exact", head: true })
+					.or("is_bundle.is.null,is_bundle.eq.false");
 
 				const { data } = await supabase
 					.from("thoughts")
 					.select("metadata, created_at, category, priority, due_at, recurrence")
+					.or("is_bundle.is.null,is_bundle.eq.false")
 					.order("created_at", { ascending: false });
 
 				const types: Record<string, number> = {};
@@ -448,10 +336,7 @@ function createServer(): McpServer {
 		},
 	);
 
-	// Tool 4: Capture Thought
-	// Accepts plain text, Markdown, or JSON as content. Optional type/topics
-	// params let callers supply metadata hints that override auto-extraction. The "thought"
-	// alias for "content" exists because some MCP clients use that parameter name.
+	// Tool 4: Capture Thought (with auto-decomposition)
 	server.registerTool(
 		"capture_thought",
 		{
@@ -505,7 +390,6 @@ function createServer(): McpServer {
 		},
 		async ({ content, thought, type, topics, due_at, recurrence, priority, category }) => {
 			try {
-				// Accept either "content" or "thought" parameter
 				const text = content || thought;
 				if (!text) {
 					return {
@@ -519,75 +403,77 @@ function createServer(): McpServer {
 					};
 				}
 
-				const [embedding, extracted] = await Promise.all([
-					getEmbedding(text),
-					extractMetadata(text),
-				]);
-
-				// Separate category from metadata (it's a real column now)
-				const extractedCategory = extracted.category as string | null;
-				delete extracted.category;
-
-				// Move enriched metadata fields that are real columns out of metadata
-				const metadata = { ...extracted, source: "mcp" } as Record<string, unknown>;
-				if (type) {
-					metadata.type = type;
-				}
-				// Auto-set status for actionable thoughts
-				const effectiveType = metadata.type as string;
-				if (effectiveType === "task" || due_at || (Array.isArray(metadata.action_items) && metadata.action_items.length > 0)) {
-					metadata.status = "open";
-				}
-				if (topics) {
-					// Accept comma-separated string or array
-					metadata.topics =
-						typeof topics === "string"
-							? topics
-									.split(",")
-									.map((t: string) => t.trim())
-									.filter(Boolean)
-							: topics;
-				}
-
-				const row: Record<string, unknown> = {
-					content: text,
-					embedding,
-					metadata,
+				const overrides: Record<string, unknown> = {
+					type,
+					topics,
+					due_at,
+					recurrence,
+					priority,
+					category,
 				};
 
-				// Real columns — use caller overrides, fall back to extracted values
-				if (due_at) row.due_at = due_at;
-				if (recurrence) row.recurrence = recurrence;
-				if (priority !== undefined && priority !== null) row.priority = priority;
-				row.category = category || extractedCategory || null;
+				if (!shouldDecompose(text, DECOMPOSE_ENABLED)) {
+					const { id, metadata, category: savedCategory } = await saveSingleThought(text, overrides);
 
-				const { data: inserted, error } = await supabase
-					.from("thoughts")
-					.insert(row)
-					.select("id")
-					.single();
+					let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${id})`;
+					if (savedCategory) confirmation += ` [${savedCategory}]`;
+					if (Array.isArray(metadata.topics) && metadata.topics.length)
+						confirmation += ` — ${(metadata.topics as string[]).join(", ")}`;
+					if (Array.isArray(metadata.people) && metadata.people.length)
+						confirmation += ` | People: ${(metadata.people as string[]).join(", ")}`;
+					if (Array.isArray(metadata.action_items) && metadata.action_items.length)
+						confirmation += ` | Actions: ${(metadata.action_items as string[]).join("; ")}`;
+					if (due_at) confirmation += ` | Due: ${new Date(due_at).toLocaleDateString()}`;
+					if (recurrence) confirmation += ` | Recurring`;
+					if (priority && priority > 0) confirmation += ` | Priority: ${PRIORITY_LABELS[priority]}`;
 
-				if (error) {
 					return {
-						content: [{ type: "text" as const, text: `Failed to capture: ${error.message}` }],
-						isError: true,
+						content: [{ type: "text" as const, text: confirmation }],
 					};
 				}
 
-				let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${inserted.id})`;
-				if (row.category) confirmation += ` [${row.category}]`;
-				if (Array.isArray(metadata.topics) && metadata.topics.length)
-					confirmation += ` — ${(metadata.topics as string[]).join(", ")}`;
-				if (Array.isArray(metadata.people) && metadata.people.length)
-					confirmation += ` | People: ${(metadata.people as string[]).join(", ")}`;
-				if (Array.isArray(metadata.action_items) && metadata.action_items.length)
-					confirmation += ` | Actions: ${(metadata.action_items as string[]).join("; ")}`;
-				if (due_at) confirmation += ` | Due: ${new Date(due_at).toLocaleDateString()}`;
-				if (recurrence) confirmation += ` | Recurring`;
-				if (priority && priority > 0) confirmation += ` | Priority: ${PRIORITY_LABELS[priority]}`;
+				// Attempt decomposition
+				const atomicThoughts = await decomposeWithLLM(text);
 
+				if (!atomicThoughts) {
+					const { id, metadata, category: savedCategory } = await saveSingleThought(text, overrides);
+
+					let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${id})`;
+					if (savedCategory) confirmation += ` [${savedCategory}]`;
+					if (Array.isArray(metadata.topics) && metadata.topics.length)
+						confirmation += ` — ${(metadata.topics as string[]).join(", ")}`;
+
+					return {
+						content: [{ type: "text" as const, text: confirmation }],
+					};
+				}
+
+				// Save parent bundle + atomic children
+				const parent = await saveSingleThought(text, {
+					...overrides,
+					type: overrides.type || "log",
+					is_bundle: true,
+				});
+
+				const children: { id: string; topic: string }[] = [];
+				for (const item of atomicThoughts) {
+					const child = await saveSingleThought(item.content, {
+						type: item.type,
+						topics: [item.topic],
+						category: overrides.category,
+						parent_id: parent.id,
+					});
+					children.push({ id: child.id, topic: item.topic });
+				}
+
+				const topicList = children.map((c) => c.topic).join(", ");
 				return {
-					content: [{ type: "text" as const, text: confirmation }],
+					content: [
+						{
+							type: "text" as const,
+							text: `Decomposed into ${children.length} atomic thoughts (parent: ${parent.id})\nTopics: ${topicList}`,
+						},
+					],
 				};
 			} catch (err: unknown) {
 				return {
@@ -599,8 +485,6 @@ function createServer(): McpServer {
 	);
 
 	// Tool 5: Update Thought
-	// Archives the current version to thought_versions before overwriting.
-	// Generates fresh embedding + metadata for the new content. Version number increments.
 	server.registerTool(
 		"update_thought",
 		{
@@ -637,7 +521,6 @@ function createServer(): McpServer {
 		},
 		async ({ id, content, type, topics, due_at, recurrence, priority, category }) => {
 			try {
-				// 1. Fetch current thought
 				const { data: current, error: fetchErr } = await supabase
 					.from("thoughts")
 					.select("id, content, embedding, metadata, version, created_at")
@@ -656,7 +539,6 @@ function createServer(): McpServer {
 					};
 				}
 
-				// 2. Archive current version to thought_versions
 				const { error: archiveErr } = await supabase.from("thought_versions").insert({
 					thought_id: current.id,
 					version: current.version,
@@ -678,32 +560,23 @@ function createServer(): McpServer {
 					};
 				}
 
-				// 3. Generate new embedding + metadata in parallel
 				const [embedding, extracted] = await Promise.all([
 					getEmbedding(content),
 					extractMetadata(content),
 				]);
 
-				// Separate category from extracted metadata
 				const extractedCategory = extracted.category as string | null;
 				delete extracted.category;
 
-				// 4. Apply overrides
 				const metadata = { ...extracted, source: "mcp" } as Record<string, unknown>;
-				if (type) {
-					metadata.type = type;
-				}
+				if (type) metadata.type = type;
 				if (topics) {
 					metadata.topics =
 						typeof topics === "string"
-							? topics
-									.split(",")
-									.map((t: string) => t.trim())
-									.filter(Boolean)
+							? topics.split(",").map((t: string) => t.trim()).filter(Boolean)
 							: topics;
 				}
 
-				// 5. Update the thought row
 				const newVersion = (current.version || 1) + 1;
 				const updateRow: Record<string, unknown> = {
 					content,
@@ -749,7 +622,6 @@ function createServer(): McpServer {
 	);
 
 	// Tool 6: Delete Thought
-	// CASCADE on thought_versions FK means version history is auto-cleaned.
 	server.registerTool(
 		"delete_thought",
 		{
@@ -762,7 +634,6 @@ function createServer(): McpServer {
 		},
 		async ({ id }) => {
 			try {
-				// 1. Fetch thought to confirm existence and show what's being deleted
 				const { data: thought, error: fetchErr } = await supabase
 					.from("thoughts")
 					.select("id, content, metadata, version")
@@ -781,7 +652,6 @@ function createServer(): McpServer {
 					};
 				}
 
-				// 2. Delete (CASCADE handles thought_versions cleanup)
 				const { error: deleteErr } = await supabase.from("thoughts").delete().eq("id", id);
 
 				if (deleteErr) {
@@ -815,8 +685,6 @@ function createServer(): McpServer {
 	);
 
 	// Tool 7: Resolve / Reopen Thought
-	// For recurring thoughts: archives current version, advances due_at, resets to open.
-	// For non-recurring: simple status toggle.
 	server.registerTool(
 		"resolve_thought",
 		{
@@ -862,9 +730,7 @@ function createServer(): McpServer {
 				if (status === "resolved" && thought.recurrence) {
 					const rule = thought.recurrence as RecurrenceRule;
 
-					// Check if recurrence has ended
 					if (rule.end_at && new Date(rule.end_at) < new Date()) {
-						// Past end date — resolve normally, don't advance
 						const metadata = {
 							...currentMetadata,
 							status: "resolved",
@@ -893,7 +759,6 @@ function createServer(): McpServer {
 						};
 					}
 
-					// 1. Archive current version
 					const { error: archiveErr } = await supabase.from("thought_versions").insert({
 						thought_id: thought.id,
 						version: thought.version,
@@ -915,11 +780,9 @@ function createServer(): McpServer {
 						};
 					}
 
-					// 2. Calculate next due date
 					const currentDue = thought.due_at ? new Date(thought.due_at) : new Date();
 					const nextDue = calculateNextDue(currentDue, rule);
 
-					// 3. Advance: reset status, bump version
 					const completionCount = ((currentMetadata.completion_count as number) || 0) + 1;
 					const metadata = {
 						...currentMetadata,
@@ -997,7 +860,7 @@ function createServer(): McpServer {
 		},
 	);
 
-	// Tool 8: List Due — "What needs attention?"
+	// Tool 8: List Due
 	server.registerTool(
 		"list_due",
 		{
@@ -1023,10 +886,10 @@ function createServer(): McpServer {
 				const until = new Date();
 				until.setDate(until.getDate() + days_ahead);
 
-				// Fetch upcoming
 				const { data: upcoming, error: upErr } = await supabase
 					.from("thoughts")
 					.select("id, content, metadata, due_at, priority, category, recurrence")
+					.or("is_bundle.is.null,is_bundle.eq.false")
 					.gte("due_at", now.toISOString())
 					.lte("due_at", until.toISOString())
 					.order("due_at", { ascending: true });
@@ -1043,6 +906,7 @@ function createServer(): McpServer {
 					const { data: od, error: odErr } = await supabase
 						.from("thoughts")
 						.select("id, content, metadata, due_at, priority, category, recurrence")
+						.or("is_bundle.is.null,is_bundle.eq.false")
 						.lt("due_at", now.toISOString())
 						.contains("metadata", { status: "open" })
 						.order("due_at", { ascending: true });
@@ -1114,12 +978,10 @@ function createServer(): McpServer {
 const app = new Hono().basePath("/echo-mcp");
 
 app.all("/", async (c) => {
-	// MCP uses POST exclusively
 	if (c.req.method !== "POST") {
 		return c.json({ error: "Method not allowed" }, 405);
 	}
 
-	// Check access key
 	const provided = c.req.header("x-echo-key") || new URL(c.req.url).searchParams.get("key");
 	if (!provided || provided !== MCP_ACCESS_KEY) {
 		return c.json({ error: "Invalid or missing access key" }, 401);
