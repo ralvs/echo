@@ -20,10 +20,12 @@ export function registerSearchThoughts(server: McpServer) {
 		async ({ query, limit, threshold }) => {
 			try {
 				const qEmb = await getEmbedding(query);
-				const { data, error } = await supabase.rpc("match_thoughts", {
+				const { data, error } = await supabase.rpc("hybrid_search", {
+					query_text: query,
 					query_embedding: qEmb,
 					match_threshold: threshold,
 					match_count: limit,
+					alpha: 0.7,
 					filter: {},
 				});
 
@@ -34,7 +36,7 @@ export function registerSearchThoughts(server: McpServer) {
 					};
 				}
 
-				// Exclude bundle parents from search results
+				// Exclude bundle parents from search results (is_bundle returned directly)
 				const filtered = (data || []).filter(
 					(t: { is_bundle?: boolean }) => !t.is_bundle,
 				);

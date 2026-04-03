@@ -32,10 +32,12 @@ export async function POST(req: NextRequest) {
 	const { createServiceClient } = await import("@/lib/supabase");
 	const supabase = createServiceClient();
 
-	const { data, error } = await supabase.rpc("match_thoughts", {
+	const { data, error } = await supabase.rpc("hybrid_search", {
+		query_text: query,
 		query_embedding: embedding,
 		match_threshold: threshold,
 		match_count: limit,
+		alpha: 0.7,
 		filter: {},
 	});
 

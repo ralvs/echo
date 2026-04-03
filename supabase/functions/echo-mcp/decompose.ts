@@ -1,5 +1,5 @@
 import { DECOMPOSE_MIN_TOKENS, supabase } from "./config.ts";
-import { getEmbedding, extractMetadata } from "./ai.ts";
+import { getEmbedding, extractMetadata, buildEmbeddingText } from "./ai.ts";
 
 export function estimateTokens(text: string): number {
 	return Math.ceil(text.length / 4);
@@ -20,10 +20,8 @@ export async function saveSingleThought(
 	text: string,
 	overrides: Record<string, unknown>,
 ): Promise<{ id: string; metadata: Record<string, unknown>; category: string | null }> {
-	const [embedding, extracted] = await Promise.all([
-		getEmbedding(text),
-		extractMetadata(text),
-	]);
+	// Extract metadata first so we can build an enriched embedding text
+	const extracted = await extractMetadata(text);
 
 	const extractedCategory = extracted.category as string | null;
 	delete extracted.category;
@@ -49,6 +47,10 @@ export async function saveSingleThought(
 		metadata.status = "open";
 	}
 
+	const effectiveCategory = (overrides.category as string | null) ?? extractedCategory;
+	const embeddingText = buildEmbeddingText(text, metadata, effectiveCategory);
+	const embedding = await getEmbedding(embeddingText);
+
 	const row: Record<string, unknown> = {
 		content: text,
 		embedding,
@@ -59,7 +61,7 @@ export async function saveSingleThought(
 	if (overrides.recurrence) row.recurrence = overrides.recurrence;
 	if (overrides.priority !== undefined && overrides.priority !== null)
 		row.priority = overrides.priority;
-	row.category = overrides.category || extractedCategory || null;
+	row.category = effectiveCategory;
 	if (overrides.is_bundle) row.is_bundle = true;
 	if (overrides.parent_id) row.parent_id = overrides.parent_id;
 

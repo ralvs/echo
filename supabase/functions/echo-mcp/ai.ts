@@ -1,5 +1,24 @@
 import { OPENROUTER_API_KEY, OPENROUTER_BASE } from "./config.ts";
 
+/**
+ * Builds the text that gets embedded for a thought.
+ * Appends LLM-extracted metadata as structured suffixes so the vector
+ * encodes semantic concepts (topics, category) alongside the raw content.
+ */
+export function buildEmbeddingText(
+	content: string,
+	metadata: { topics?: unknown; type?: string },
+	category: string | null,
+): string {
+	const parts = [content];
+	const topics = Array.isArray(metadata.topics) ? (metadata.topics as string[]) : [];
+	if (topics.length) parts.push(`Topics: ${topics.join(", ")}`);
+	if (category) parts.push(`Category: ${category}`);
+	// Only append type when it adds signal — "observation" is the generic default
+	if (metadata.type && metadata.type !== "observation") parts.push(`Type: ${metadata.type}`);
+	return parts.join("\n\n");
+}
+
 export async function getEmbedding(text: string): Promise<number[]> {
 	const r = await fetch(`${OPENROUTER_BASE}/embeddings`, {
 		method: "POST",

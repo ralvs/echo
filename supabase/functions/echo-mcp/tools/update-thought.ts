@@ -2,7 +2,7 @@ import { type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { supabase } from "../config.ts";
-import { getEmbedding, extractMetadata } from "../ai.ts";
+import { getEmbedding, extractMetadata, buildEmbeddingText } from "../ai.ts";
 
 export function registerUpdateThought(server: McpServer) {
 	server.registerTool(
@@ -80,10 +80,8 @@ export function registerUpdateThought(server: McpServer) {
 					};
 				}
 
-				const [embedding, extracted] = await Promise.all([
-					getEmbedding(content),
-					extractMetadata(content),
-				]);
+				// Extract metadata first so we can build an enriched embedding text
+				const extracted = await extractMetadata(content);
 
 				const extractedCategory = extracted.category as string | null;
 				delete extracted.category;
@@ -96,6 +94,10 @@ export function registerUpdateThought(server: McpServer) {
 							? topics.split(",").map((t: string) => t.trim()).filter(Boolean)
 							: topics;
 				}
+
+				const effectiveCategory = category ?? extractedCategory;
+				const embeddingText = buildEmbeddingText(content, metadata, effectiveCategory);
+				const embedding = await getEmbedding(embeddingText);
 
 				const newVersion = (current.version || 1) + 1;
 				const updateRow: Record<string, unknown> = {
