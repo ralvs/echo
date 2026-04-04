@@ -4,7 +4,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { Hono } from "hono";
 
-import { MCP_ACCESS_KEY } from "./config.ts";
 import { registerSearchThoughts } from "./tools/search-thoughts.ts";
 import { registerListThoughts } from "./tools/list-thoughts.ts";
 import { registerThoughtStats } from "./tools/thought-stats.ts";
@@ -35,8 +34,9 @@ function createServer(): McpServer {
 }
 
 // --- Hono App ---
-// Auth via x-echo-key header or ?key= query param.
-// Supabase gateway JWT check is disabled (verify_jwt = false in config.toml).
+// Auth: Authorization: Bearer <publishable_key> (SUPABASE_ANON_KEY).
+// Secret key is used only internally for DB access — never exposed in client config.
+// verify_jwt = false — Supabase gateway MCP auth support is not yet available.
 
 const app = new Hono().basePath("/echo-mcp");
 
@@ -45,9 +45,10 @@ app.all("/", async (c) => {
 		return c.json({ error: "Method not allowed" }, 405);
 	}
 
-	const provided = c.req.header("x-echo-key") || new URL(c.req.url).searchParams.get("key");
-	if (!provided || provided !== MCP_ACCESS_KEY) {
-		return c.json({ error: "Invalid or missing access key" }, 401);
+	const authHeader = c.req.header("authorization");
+	const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+	if (!token || token !== Deno.env.get("SUPABASE_ANON_KEY")) {
+		return c.json({ error: "Unauthorized" }, 401);
 	}
 
 	const server = createServer();
