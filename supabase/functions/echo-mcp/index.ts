@@ -34,7 +34,7 @@ function createServer(): McpServer {
 }
 
 // --- Hono App ---
-// Auth: Authorization: Bearer <publishable_key> (SUPABASE_ANON_KEY).
+// Auth: Authorization: Bearer <publishable_key> (MCP_PUBLISHABLE_KEY secret).
 // Secret key is used only internally for DB access — never exposed in client config.
 // verify_jwt = false — Supabase gateway MCP auth support is not yet available.
 
@@ -47,7 +47,7 @@ app.all("/", async (c) => {
 
 	const authHeader = c.req.header("authorization");
 	const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
-	if (!token || token !== Deno.env.get("SUPABASE_ANON_KEY")) {
+	if (!token || token !== Deno.env.get("MCP_PUBLISHABLE_KEY")) {
 		return c.json({ error: "Unauthorized" }, 401);
 	}
 
