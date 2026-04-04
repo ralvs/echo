@@ -45,10 +45,9 @@ app.all("/", async (c) => {
 		return c.json({ error: "Method not allowed" }, 405);
 	}
 
-	const auth = c.req.header("Authorization");
-	const provided = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+	const provided = c.req.header("x-echo-key") || new URL(c.req.url).searchParams.get("key");
 	if (!provided || provided !== MCP_ACCESS_KEY) {
-		return c.json({ error: "Unauthorized" }, 401);
+		return c.json({ error: "Invalid or missing access key" }, 401);
 	}
 
 	const server = createServer();
