@@ -4,7 +4,6 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { Hono } from "hono";
 
-import { MCP_ACCESS_KEY } from "./config.ts";
 import { registerSearchThoughts } from "./tools/search-thoughts.ts";
 import { registerListThoughts } from "./tools/list-thoughts.ts";
 import { registerThoughtStats } from "./tools/thought-stats.ts";
@@ -34,18 +33,15 @@ function createServer(): McpServer {
 	return server;
 }
 
-// --- Hono App with Auth Check ---
+// --- Hono App ---
+// Authentication is handled by Supabase's gateway (verify_jwt: true).
+// Pass the anon key as ?apikey=<key> in the URL when configuring the MCP client.
 
 const app = new Hono().basePath("/echo-mcp");
 
 app.all("/", async (c) => {
 	if (c.req.method !== "POST") {
 		return c.json({ error: "Method not allowed" }, 405);
-	}
-
-	const provided = c.req.header("x-echo-key") || new URL(c.req.url).searchParams.get("key");
-	if (!provided || provided !== MCP_ACCESS_KEY) {
-		return c.json({ error: "Invalid or missing access key" }, 401);
 	}
 
 	const server = createServer();
