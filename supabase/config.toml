@@ -392,9 +392,3 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/echo-mcp/deno.json"
 entrypoint = "./functions/echo-mcp/index.ts"
-
-[functions.reembed-thoughts]
-enabled = true
-verify_jwt = false
-import_map = "./functions/reembed-thoughts/deno.json"
-entrypoint = "./functions/reembed-thoughts/index.ts"
