@@ -67,6 +67,27 @@ export function registerSearchThoughts(server: McpServer) {
 							b.similarity - a.similarity,
 					);
 
+				// Batch-fetch parent content for decomposed children
+				const parentIds = [
+					...new Set(
+						filtered
+							.filter((t: { parent_id?: string }) => t.parent_id)
+							.map((t: { parent_id?: string }) => t.parent_id!),
+					),
+				];
+				let parentMap: Record<string, string> = {};
+				if (parentIds.length) {
+					const { data: parents } = await supabase
+						.from("thoughts")
+						.select("id, content")
+						.in("id", parentIds);
+					if (parents) {
+						parentMap = Object.fromEntries(
+							parents.map((p: { id: string; content: string }) => [p.id, p.content]),
+						);
+					}
+				}
+
 				if (filtered.length === 0) {
 					return {
 						content: [{ type: "text" as const, text: `No thoughts found matching "${query}".` }],
@@ -85,6 +106,7 @@ export function registerSearchThoughts(server: McpServer) {
 							due_at: string | null;
 							priority: number | null;
 							category: string | null;
+							parent_id: string | null;
 						},
 						i: number,
 					) => {
@@ -107,6 +129,14 @@ export function registerSearchThoughts(server: McpServer) {
 							parts.push(`People: ${(m.people as string[]).join(", ")}`);
 						if (Array.isArray(m.action_items) && m.action_items.length)
 							parts.push(`Actions: ${(m.action_items as string[]).join("; ")}`);
+						if (t.parent_id && parentMap[t.parent_id]) {
+							const parentContent = parentMap[t.parent_id];
+							const parentPreview =
+								parentContent.length > 200
+									? parentContent.substring(0, 200) + "..."
+									: parentContent;
+							parts.push(`Original context: ${parentPreview}`);
+						}
 						parts.push(`\n${t.content}`);
 						return parts.join("\n");
 					},
