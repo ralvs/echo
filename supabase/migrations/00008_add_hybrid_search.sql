@@ -76,6 +76,7 @@ for each row execute function public.thoughts_search_vector_update();
 -- 6. hybrid_search RPC
 --    Scores: alpha * vector_sim + (1-alpha) * ts_rank_cd (normalized, weight-aware)
 --    WHERE: vector sim above threshold OR full-text match — whichever fires first
+--    FTS uses OR between stemmed query lexemes so ANY matching term is enough.
 create or replace function public.hybrid_search(
   query_text      text,
   query_embedding vector,
@@ -99,11 +100,20 @@ language plpgsql
 set search_path = public, extensions
 as $$
 declare
-  tsq tsquery;
+  tsq     tsquery;
+  tsq_str text;
 begin
-  -- Gracefully handle queries that produce no valid tsquery tokens
+  -- Build an OR-based tsquery from the stemmed lexemes of the query.
+  -- This means the FTS branch fires if ANY query word appears in the document,
+  -- rather than requiring all words to match (which plainto_tsquery enforces).
   begin
-    tsq := plainto_tsquery('english', query_text);
+    select string_agg(lexeme, ' | ')
+    into tsq_str
+    from unnest(to_tsvector('english', query_text));
+
+    if tsq_str is not null then
+      tsq := to_tsquery('english', tsq_str);
+    end if;
   exception when others then
     tsq := null;
   end;
