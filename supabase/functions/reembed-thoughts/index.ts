@@ -49,7 +49,9 @@ Deno.serve(async (req) => {
 		});
 	}
 
-	const providedKey = req.headers.get("x-echo-key");
+	const authHeader = req.headers.get("authorization") ?? "";
+	const bearerKey = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
+	const providedKey = req.headers.get("x-echo-key") ?? bearerKey;
 	const accessKey = Deno.env.get("MCP_ACCESS_KEY");
 	if (!providedKey || providedKey !== accessKey) {
 		return new Response(JSON.stringify({ error: "Invalid or missing access key" }), {
