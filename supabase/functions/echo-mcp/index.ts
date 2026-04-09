@@ -12,13 +12,15 @@ import { registerUpdateThought } from "./tools/update-thought.ts";
 import { registerDeleteThought } from "./tools/delete-thought.ts";
 import { registerResolveThought } from "./tools/resolve-thought.ts";
 import { registerListDue } from "./tools/list-due.ts";
+import { registerGetThoughtContext } from "./tools/get-thought-context.ts";
+import { registerGetProfile } from "./tools/get-profile.ts";
 
 // --- MCP Server Factory (stateless: new instance per request) ---
 
 function createServer(): McpServer {
 	const server = new McpServer({
 		name: "echo",
-		version: "3.0.0",
+		version: "4.0.0",
 	});
 
 	registerSearchThoughts(server);
@@ -29,6 +31,8 @@ function createServer(): McpServer {
 	registerDeleteThought(server);
 	registerResolveThought(server);
 	registerListDue(server);
+	registerGetThoughtContext(server);
+	registerGetProfile(server);
 
 	return server;
 }
