@@ -52,7 +52,8 @@ Deno.serve(async (req) => {
 	const authHeader = req.headers.get("authorization") ?? "";
 	const bearerKey = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
 	const providedKey = req.headers.get("x-echo-key") ?? bearerKey;
-	const accessKey = Deno.env.get("MCP_ACCESS_KEY");
+	// SUPABASE_ANON_KEY is auto-injected by the edge runtime (equals the publishable key)
+	const accessKey = Deno.env.get("SUPABASE_ANON_KEY");
 	if (!providedKey || providedKey !== accessKey) {
 		return new Response(JSON.stringify({ error: "Invalid or missing access key" }), {
 			status: 401,
