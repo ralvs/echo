@@ -43,7 +43,7 @@ export function registerListThoughts(server: McpServer) {
 			try {
 				let q = supabase
 					.from("thoughts")
-					.select("id, content, metadata, created_at, due_at, priority, category, recurrence")
+					.select("id, content, metadata, created_at, event_at, due_at, priority, category, recurrence")
 					.limit(limit);
 
 				// Exclude bundle parents by default
@@ -106,6 +106,7 @@ export function registerListThoughts(server: McpServer) {
 							content: string;
 							metadata: Record<string, unknown>;
 							created_at: string;
+							event_at: string | null;
 							due_at: string | null;
 							priority: number | null;
 							category: string | null;
@@ -118,9 +119,10 @@ export function registerListThoughts(server: McpServer) {
 						const statusTag = m.status ? ` [${m.status}]` : "";
 						const priorityTag = t.priority && t.priority > 0 ? ` P:${PRIORITY_LABELS[t.priority]}` : "";
 						const dueTag = t.due_at ? ` Due:${new Date(t.due_at).toLocaleDateString()}` : "";
+						const eventTag = t.event_at ? ` Event:${new Date(t.event_at).toLocaleDateString()}` : "";
 						const recurTag = t.recurrence ? " ↻" : "";
 						const catTag = t.category ? ` [${t.category}]` : "";
-						return `${i + 1}. [${new Date(t.created_at).toLocaleDateString()}] (${m.type || "??"}${tags ? " - " + tags : ""})${statusTag}${priorityTag}${dueTag}${recurTag}${catTag}\n   ID: ${t.id}\n   ${t.content}`;
+						return `${i + 1}. [${new Date(t.created_at).toLocaleDateString()}] (${m.type || "??"}${tags ? " - " + tags : ""})${statusTag}${priorityTag}${dueTag}${eventTag}${recurTag}${catTag}\n   ID: ${t.id}\n   ${t.content}`;
 					},
 				);
 

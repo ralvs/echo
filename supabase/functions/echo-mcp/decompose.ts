@@ -26,6 +26,12 @@ export async function saveSingleThought(
 	const extractedCategory = extracted.category as string | null;
 	delete extracted.category;
 
+	// expires_at and event_at are columns, not metadata — pull them out
+	const extractedExpiresAt = (extracted.expires_at as string | null) ?? null;
+	delete extracted.expires_at;
+	const extractedEventAt = (extracted.event_at as string | null) ?? null;
+	delete extracted.event_at;
+
 	const metadata = { ...extracted, source: "mcp" } as Record<string, unknown>;
 	if (overrides.type) metadata.type = overrides.type;
 	if (overrides.topics) {
@@ -58,6 +64,8 @@ export async function saveSingleThought(
 	};
 
 	if (overrides.due_at) row.due_at = overrides.due_at;
+	if (extractedExpiresAt) row.expires_at = extractedExpiresAt;
+	if (extractedEventAt) row.event_at = extractedEventAt;
 	if (overrides.recurrence) row.recurrence = overrides.recurrence;
 	if (overrides.priority !== undefined && overrides.priority !== null)
 		row.priority = overrides.priority;

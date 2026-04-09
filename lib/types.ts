@@ -8,6 +8,8 @@ export type RecurrenceRule = {
 	end_at?: string;
 };
 
+export type MemoryType = "fact" | "preference" | "episodic" | "procedural";
+
 export type ThoughtMetadata = {
 	type?: string;
 	topics?: string[];
@@ -23,6 +25,7 @@ export type ThoughtMetadata = {
 	rating?: number;
 	last_completed?: string;
 	completion_count?: number;
+	memory_type?: MemoryType;
 	[key: string]: unknown;
 };
 
@@ -32,6 +35,8 @@ export type Thought = {
 	metadata: ThoughtMetadata;
 	version: number;
 	due_at: string | null;
+	expires_at: string | null;
+	event_at: string | null;
 	recurrence: RecurrenceRule | null;
 	priority: number | null;
 	category: string | null;

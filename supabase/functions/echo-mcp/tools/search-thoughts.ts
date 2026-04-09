@@ -37,9 +37,35 @@ export function registerSearchThoughts(server: McpServer) {
 				}
 
 				// Exclude bundle parents from search results (is_bundle returned directly)
-				const filtered = (data || []).filter(
-					(t: { is_bundle?: boolean }) => !t.is_bundle,
-				);
+				// Expired rows are already filtered at the DB level in hybrid_search.
+				const now = Date.now();
+				const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+
+				const filtered = (data || [])
+					.filter((t: { is_bundle?: boolean }) => !t.is_bundle)
+					.map(
+						(t: {
+							similarity: number;
+							created_at: string;
+							metadata: Record<string, unknown>;
+						}) => {
+							const ageMonths =
+								(now - new Date(t.created_at).getTime()) / MONTH_MS;
+							const memType =
+								(t.metadata?.memory_type as string | undefined) ?? "episodic";
+							const decay =
+								memType === "fact" || memType === "procedural"
+									? 1.0
+									: memType === "preference"
+										? Math.max(0.7, 1 - ageMonths * 0.02)
+										: Math.max(0.5, 1 - ageMonths * 0.05); // episodic
+							return { ...t, similarity: t.similarity * decay };
+						},
+					)
+					.sort(
+						(a: { similarity: number }, b: { similarity: number }) =>
+							b.similarity - a.similarity,
+					);
 
 				if (filtered.length === 0) {
 					return {
@@ -55,6 +81,7 @@ export function registerSearchThoughts(server: McpServer) {
 							metadata: Record<string, unknown>;
 							similarity: number;
 							created_at: string;
+							event_at: string | null;
 							due_at: string | null;
 							priority: number | null;
 							category: string | null;
@@ -68,6 +95,8 @@ export function registerSearchThoughts(server: McpServer) {
 							`Captured: ${new Date(t.created_at).toLocaleDateString()}`,
 							`Type: ${m.type || "unknown"}`,
 						];
+						if (t.event_at) parts.push(`Event: ${new Date(t.event_at).toLocaleDateString()}`);
+						if (m.memory_type) parts.push(`Memory: ${m.memory_type}`);
 						if (m.status) parts.push(`Status: ${m.status}`);
 						if (t.category) parts.push(`Category: ${t.category}`);
 						if (t.priority && t.priority > 0) parts.push(`Priority: ${PRIORITY_LABELS[t.priority] || t.priority}`);

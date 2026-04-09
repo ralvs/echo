@@ -69,6 +69,13 @@ Extract metadata from the user's captured thought. Return JSON with:
 - "due_at": if a single clear due/deadline date is mentioned, return it as ISO 8601 datetime (e.g. "2026-04-01T00:00:00Z"). null if no due date or if multiple distinct items have different due dates.
 - "recurrence": if a repeating schedule is described, return an object with "interval_days" (number) and/or "unit" ("day"|"week"|"month"). null if not recurring.
 - "priority": 0-4 (0=none, 1=low, 2=medium, 3=high, 4=urgent) based on urgency expressed. 0 if not expressed.
+- "memory_type": one of:
+    "fact" — persistent truths that don't change often (addresses, allergies, IDs, credentials, biographical details)
+    "preference" — personal choices that may evolve (favorite tools, restaurants, habits, likes/dislikes)
+    "episodic" — time-bound events, meetings, meals, conversations, travel, daily observations. DEFAULT when unsure.
+    "procedural" — how-to knowledge, recipes, processes, setup guides, step-by-step instructions
+- "expires_at": ISO 8601 datetime if the thought is inherently time-limited and becomes irrelevant after a specific moment (e.g. "dentist appointment next Monday" → that Monday; "exam on Friday" → that Friday end-of-day; "meeting tomorrow at 3pm" → tomorrow 3pm). null if the thought retains value indefinitely (facts, preferences, procedures, general observations).
+- "event_at": ISO 8601 datetime of when the described event actually occurred or will occur, if different from right now. For past events ("last Tuesday I had lunch with Sarah" → last Tuesday), future events ("dentist next Monday" → next Monday), and specific dated references ("on March 15th we signed the contract" → that date). null if the thought describes the present moment or has no specific temporal anchor beyond now.
 Only extract what's explicitly there. Do not infer or fabricate. Resolve relative dates using today's date.
 Return ONLY valid JSON, no markdown fences or extra text.`,
 				},
