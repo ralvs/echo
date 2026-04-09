@@ -4,12 +4,15 @@ A personal knowledge capture system. Thoughts go in, get tagged and embedded by 
 
 ## What it does
 
-- **Capture** text thoughts; AI extracts type, topics, people, action items, priority, dates
-- **Search** using hybrid semantic + full-text search (pgvector + tsvector)
+- **Capture** text thoughts; AI extracts type, topics, people, action items, priority, dates, memory type, and temporal anchors
+- **Search** using hybrid semantic + full-text search (pgvector + tsvector) with memory-aware relevance decay
 - **Schedule** tasks with due dates, priorities, and recurrence rules
-- **Decompose** multi-topic inputs into atomic thoughts automatically
+- **Decompose** multi-topic inputs into atomic thoughts automatically, with parent context injected in search results
+- **Classify** memories as fact, preference, episodic, or procedural — each decays differently in search ranking
+- **Relate** thoughts automatically via a knowledge graph (updates, extends, derives, related)
+- **Profile** synthesize a structured user profile from captured knowledge (static facts + dynamic activity)
 - **Version** every thought update; history archived in `thought_versions`
-- **MCP server** exposes 8 tools so Claude can read and write thoughts directly
+- **MCP server** exposes 10 tools so Claude can read, write, and reason about thoughts directly
 
 ## Architecture
 
@@ -30,9 +33,9 @@ A personal knowledge capture system. Thoughts go in, get tagged and embedded by 
 
 Everything lives in one `thoughts` table. No type-specific extension tables, no fan-out routing.
 
-**Real columns** (for efficient sorting/indexing): `due_at`, `priority` (0–4), `category`, `parent_id`, `is_bundle`
+**Real columns** (for efficient sorting/indexing): `due_at`, `priority` (0–4), `category`, `parent_id`, `is_bundle`, `expires_at`, `event_at`
 
-**JSONB `metadata`** (flexible, GIN-indexed): type, topics, people, action_items, dates_mentioned, source, status, resolved_at, location, cost, url, rating, last_completed, completion_count
+**JSONB `metadata`** (flexible, GIN-indexed): type, topics, people, action_items, dates_mentioned, source, status, resolved_at, location, cost, url, rating, last_completed, completion_count, memory_type
 
 **JSONB `recurrence`**: interval_days, unit, days_of_week, day_of_month, end_at
 
@@ -40,13 +43,45 @@ Everything lives in one `thoughts` table. No type-specific extension tables, no 
 
 ### Hybrid search
 
-`hybrid_search` RPC blends **70% vector similarity** (pgvector cosine) + **30% full-text rank** (tsvector). A thought matches if either similarity exceeds threshold or a full-text match exists. A `search_vector` column is maintained by trigger on `content`, topics, and category.
+`hybrid_search` RPC blends **70% vector similarity** (pgvector cosine) + **30% full-text rank** (tsvector). A thought matches if either similarity exceeds threshold or a full-text match exists. A `search_vector` column is maintained by trigger on `content`, topics, and category. Expired thoughts (`expires_at < now()`) are filtered at the DB level.
 
 Embeddings are enriched before indexing: topics, category, and type are appended to the content so semantic similarity captures metadata concepts.
+
+### Memory classification and relevance decay
+
+Every thought is classified into a memory type by the LLM:
+
+| Type | Decay | Example |
+|---|---|---|
+| **fact** | None (1.0) | "My email is x@x.com" |
+| **procedural** | None (1.0) | "To reset the router, hold the button for 10s" |
+| **preference** | Slow (−2%/month, floor 0.7) | "I prefer dark mode" |
+| **episodic** | Fast (−5%/month, floor 0.5) | "Had lunch with Sarah today" |
+
+Decay is applied post-query as a multiplier on similarity scores, so older episodic memories naturally rank below equally-relevant facts.
+
+Thoughts with a natural expiration (e.g. "dentist appointment next Monday") get an `expires_at` timestamp and are excluded from search after that date.
+
+### Temporal grounding
+
+Dual-layer timestamping separates _when captured_ (`created_at`) from _when it happened_ (`event_at`). This enables accurate temporal queries — "Last Tuesday I had lunch with Sarah" captured on Friday stores Tuesday as `event_at`, not Friday.
+
+### Knowledge graph
+
+When a new thought is captured, it's compared against existing thoughts (similarity threshold ≥ 0.8). High-similarity matches are classified by the LLM into relation types:
+
+- **updates** — new thought contradicts/replaces old (marks previous as superseded via `is_latest = false`)
+- **extends** — new thought adds detail without replacing
+- **derives** — logical consequence of an existing thought
+- **related** — topically connected but independent
+
+Relations are stored in a `thought_relations` table and traversable via the `get_thought_context` tool.
 
 ### Decomposition
 
 When a capture is long or covers multiple topics, the LLM automatically splits it into atomic thoughts. The original becomes a parent bundle (`is_bundle = true`) and is excluded from search results. Child thoughts reference it via `parent_id`.
+
+When a decomposed child appears in search results, the parent bundle's content is fetched and included as "Original context" — giving the LLM the full picture without sacrificing atomic precision.
 
 ### Versioning and recurrence
 
@@ -70,14 +105,16 @@ The Supabase service role key is used internally for DB access and is never expo
 
 | Tool | Description |
 |---|---|
-| `capture_thought` | Save a new thought; supports metadata overrides and decomposition |
-| `search_thoughts` | Semantic hybrid search with similarity scores |
-| `list_thoughts` | Filtered listing with sorting |
+| `capture_thought` | Save a new thought; extracts metadata, detects relations, supports decomposition |
+| `search_thoughts` | Semantic hybrid search with decay-adjusted scores and parent context injection |
+| `list_thoughts` | Filtered listing with sorting by date, due date, or priority |
 | `list_due` | Show overdue and upcoming tasks |
 | `update_thought` | Modify content/metadata; archives previous version |
 | `resolve_thought` | Mark done (or reopen); for recurring: advances due date |
 | `delete_thought` | Permanently delete with cascade to versions |
 | `thought_stats` | Summary statistics |
+| `get_thought_context` | Traverse the knowledge graph — show a thought and all its relations (depth 1–2) |
+| `get_profile` | Synthesize a structured user profile (static facts/preferences + dynamic activity) |
 
 ### Claude Code config
 
@@ -117,21 +154,14 @@ echo/
 │   └── store.ts            # Zustand store
 └── supabase/
     ├── functions/
-    │   ├── echo-mcp/
-    │   │   ├── index.ts        # Hono app + MCP server factory
-    │   │   ├── config.ts
-    │   │   ├── ai.ts           # LLM calls
-    │   │   ├── decompose.ts    # Decomposition logic
-    │   │   ├── recurrence.ts   # Recurrence advancement
-    │   │   └── tools/          # One file per MCP tool
-    │   └── reembed-thoughts/   # Batch re-embedding utility
-    └── migrations/
-        ├── 00002_add_versioning.sql
-        ├── 00003_add_scheduling.sql
-        ├── 00004_add_decomposition.sql
-        ├── 00005_enable_rls_thought_versions.sql
-        ├── 00006_fix_function_search_paths.sql
-        └── 00008_add_hybrid_search.sql
+    └── functions/
+        └── echo-mcp/
+            ├── index.ts        # Hono app + MCP server factory
+            ├── config.ts
+            ├── ai.ts           # LLM calls (metadata, embeddings, relation classification)
+            ├── decompose.ts    # Decomposition logic
+            ├── recurrence.ts   # Recurrence advancement
+            └── tools/          # One file per MCP tool (10 tools)
 ```
 
 ---
@@ -208,3 +238,7 @@ vercel --prod
 | Enriched embeddings (content + topics/category appended) | Semantic search matches on metadata concepts, not just raw text |
 | Bundles excluded from search | Parent bundles are containers; searching them would return duplicate/redundant results |
 | Resolve-and-advance for recurrence | Simpler than a scheduler; recurring tasks self-propagate on completion |
+| Memory-type decay applied post-query | Keeps the DB function simple; decay logic is easy to tune in application code |
+| `event_at` as real column (not JSONB) | Enables efficient temporal range queries and sorting |
+| Relation detection threshold ≥ 0.8 | High bar before triggering LLM classification avoids false positives and unnecessary API calls |
+| `is_latest` flag on relations | Supermemory's pattern — cleaner than `superseded_by` in metadata for tracking update chains |
