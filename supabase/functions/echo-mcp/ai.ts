@@ -100,6 +100,62 @@ Return ONLY valid JSON, no markdown fences or extra text.`,
 	}
 }
 
+export async function classifyRelation(
+	newText: string,
+	existingText: string,
+): Promise<{
+	relation: "updates" | "extends" | "derives" | "related" | "unrelated";
+	confidence: number;
+} | null> {
+	try {
+		const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "anthropic/claude-haiku-4-5",
+				max_tokens: 256,
+				response_format: { type: "json_object" },
+				messages: [
+					{
+						role: "system",
+						content: `Classify the relationship between two thoughts from a personal knowledge base.
+
+Relationship types:
+- "updates": New thought contradicts or replaces the old (e.g. corrected phone number, changed preference)
+- "extends": New thought adds detail without replacing (e.g. follow-up note on same topic)
+- "derives": New thought is a logical consequence of the old (e.g. decision made based on earlier research)
+- "related": Topically connected but independent
+- "unrelated": No meaningful relationship despite surface similarity
+
+Return ONLY valid JSON: {"relation": "<type>", "confidence": <0.0-1.0>}`,
+					},
+					{
+						role: "user",
+						content: `EXISTING THOUGHT:\n${existingText}\n\nNEW THOUGHT:\n${newText}`,
+					},
+				],
+			}),
+		});
+
+		if (!r.ok) return null;
+
+		const d = await r.json();
+		const raw = d.choices[0].message.content as string;
+		const clean = raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+		const parsed = JSON.parse(clean);
+
+		if (!parsed.relation || typeof parsed.confidence !== "number") return null;
+		if (parsed.confidence < 0.5) return null;
+
+		return parsed;
+	} catch {
+		return null;
+	}
+}
+
 export async function decomposeWithLLM(
 	text: string,
 ): Promise<{ content: string; type: string; topic: string }[] | null> {

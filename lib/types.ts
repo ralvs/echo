@@ -44,6 +44,18 @@ export type Thought = {
 	updated_at: string;
 };
 
+export type RelationType = "updates" | "extends" | "derives" | "related";
+
+export type ThoughtRelation = {
+	id: string;
+	source_id: string;
+	target_id: string;
+	relation_type: RelationType;
+	confidence: number;
+	is_latest: boolean;
+	created_at: string;
+};
+
 export type ThoughtVersion = {
 	id: string;
 	thought_id: string;

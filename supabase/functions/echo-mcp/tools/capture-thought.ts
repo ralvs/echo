@@ -1,9 +1,78 @@
 import { type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { DECOMPOSE_ENABLED, PRIORITY_LABELS } from "../config.ts";
-import { decomposeWithLLM } from "../ai.ts";
+import { DECOMPOSE_ENABLED, PRIORITY_LABELS, supabase } from "../config.ts";
+import { decomposeWithLLM, classifyRelation, getEmbedding } from "../ai.ts";
 import { shouldDecompose, saveSingleThought } from "../decompose.ts";
+
+async function detectRelations(
+	thoughtId: string,
+	content: string,
+	parentId?: string,
+): Promise<string[]> {
+	try {
+		const embedding = await getEmbedding(content);
+		const { data: matches } = await supabase.rpc("hybrid_search", {
+			query_text: content,
+			query_embedding: embedding,
+			match_threshold: 0.8,
+			match_count: 4,
+			alpha: 0.7,
+			filter: {},
+		});
+
+		if (!matches || matches.length === 0) return [];
+
+		const candidates = matches.filter(
+			(m: { id: string; parent_id?: string; is_bundle?: boolean }) =>
+				m.id !== thoughtId &&
+				!m.is_bundle &&
+				(!parentId || m.parent_id !== parentId),
+		);
+
+		const relationSummaries: string[] = [];
+
+		for (const candidate of candidates.slice(0, 3)) {
+			const result = await classifyRelation(content, candidate.content);
+			if (!result || result.relation === "unrelated") continue;
+
+			// Insert relation
+			await supabase.from("thought_relations").upsert(
+				{
+					source_id: thoughtId,
+					target_id: candidate.id,
+					relation_type: result.relation,
+					confidence: result.confidence,
+					is_latest: true,
+				},
+				{ onConflict: "source_id,target_id,relation_type" },
+			);
+
+			// If "updates", mark previous update relations to target as superseded
+			if (result.relation === "updates") {
+				await supabase
+					.from("thought_relations")
+					.update({ is_latest: false })
+					.eq("target_id", candidate.id)
+					.eq("relation_type", "updates")
+					.neq("source_id", thoughtId);
+			}
+
+			const preview =
+				candidate.content.length > 60
+					? candidate.content.substring(0, 60) + "..."
+					: candidate.content;
+			relationSummaries.push(
+				`${result.relation} "${preview}" (${(result.confidence * 100).toFixed(0)}%)`,
+			);
+		}
+
+		return relationSummaries;
+	} catch (err) {
+		console.error("Relation detection failed:", err);
+		return [];
+	}
+}
 
 export function registerCaptureThought(server: McpServer) {
 	server.registerTool(
@@ -96,6 +165,12 @@ export function registerCaptureThought(server: McpServer) {
 					if (recurrence) confirmation += ` | Recurring`;
 					if (priority && priority > 0) confirmation += ` | Priority: ${PRIORITY_LABELS[priority]}`;
 
+					// Detect relations in background (non-blocking for the response)
+					const relations = await detectRelations(id, text);
+					if (relations.length) {
+						confirmation += `\nRelations: ${relations.join("; ")}`;
+					}
+
 					return {
 						content: [{ type: "text" as const, text: confirmation }],
 					};
@@ -125,6 +200,7 @@ export function registerCaptureThought(server: McpServer) {
 				});
 
 				const children: { id: string; topic: string }[] = [];
+				const allRelations: string[] = [];
 				for (const item of atomicThoughts) {
 					const child = await saveSingleThought(item.content, {
 						type: item.type,
@@ -133,14 +209,21 @@ export function registerCaptureThought(server: McpServer) {
 						parent_id: parent.id,
 					});
 					children.push({ id: child.id, topic: item.topic });
+
+					const rels = await detectRelations(child.id, item.content, parent.id);
+					allRelations.push(...rels);
 				}
 
 				const topicList = children.map((c) => c.topic).join(", ");
+				let decomposedText = `Decomposed into ${children.length} atomic thoughts (parent: ${parent.id})\nTopics: ${topicList}`;
+				if (allRelations.length) {
+					decomposedText += `\nRelations: ${allRelations.join("; ")}`;
+				}
 				return {
 					content: [
 						{
 							type: "text" as const,
-							text: `Decomposed into ${children.length} atomic thoughts (parent: ${parent.id})\nTopics: ${topicList}`,
+							text: decomposedText,
 						},
 					],
 				};
