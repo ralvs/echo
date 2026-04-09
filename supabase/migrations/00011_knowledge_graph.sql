@@ -20,7 +20,9 @@ create table if not exists public.thought_relations (
 create index if not exists idx_relations_source on thought_relations(source_id);
 create index if not exists idx_relations_target on thought_relations(target_id);
 
--- 2. Update hybrid_search to also return parent_id and event_at
+-- 2. Drop + recreate hybrid_search (return type changed: added event_at, parent_id)
+drop function if exists public.hybrid_search(text, vector, double precision, integer, double precision, jsonb);
+
 create or replace function public.hybrid_search(
   query_text      text,
   query_embedding vector,
