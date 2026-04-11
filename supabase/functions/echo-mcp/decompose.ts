@@ -76,10 +76,16 @@ export async function saveSingleThought(
 	const { data: inserted, error } = await supabase
 		.from("thoughts")
 		.insert(row)
-		.select("id")
+		.select("id, created_at")
 		.single();
 
 	if (error) throw new Error(`Failed to capture: ${error.message}`);
 
-	return { id: inserted.id, metadata, category: row.category as string | null };
+	return {
+		id: inserted.id,
+		metadata,
+		category: row.category as string | null,
+		embedding,
+		created_at: inserted.created_at as string,
+	};
 }

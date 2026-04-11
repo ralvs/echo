@@ -4,6 +4,22 @@ import { z } from "zod";
 import { DECOMPOSE_ENABLED, PRIORITY_LABELS, supabase } from "../config.ts";
 import { decomposeWithLLM, classifyRelation, getEmbedding } from "../ai.ts";
 import { shouldDecompose, saveSingleThought } from "../decompose.ts";
+import { updateTopicPagesForThought } from "../topic-pages.ts";
+
+async function insertSourceRelations(thoughtId: string, sourceIds: string[]): Promise<void> {
+	for (const sourceId of sourceIds) {
+		await supabase.from("thought_relations").upsert(
+			{
+				source_id: thoughtId,
+				target_id: sourceId,
+				relation_type: "derives",
+				confidence: 1.0,
+				is_latest: true,
+			},
+			{ onConflict: "source_id,target_id,relation_type" },
+		);
+	}
+}
 
 async function detectRelations(
 	thoughtId: string,
@@ -124,9 +140,15 @@ export function registerCaptureThought(server: McpServer) {
 					.string()
 					.optional()
 					.describe("Override auto-detected category (e.g. plumbing, italian, gardening)"),
+				source_ids: z
+					.array(z.string())
+					.optional()
+					.describe(
+						"IDs of source thoughts this was derived from. Explicitly creates 'derives' relations at confidence 1.0, bypassing the automatic relation classifier.",
+					),
 			},
 		},
-		async ({ content, thought, type, topics, due_at, recurrence, priority, category }) => {
+		async ({ content, thought, type, topics, due_at, recurrence, priority, category, source_ids }) => {
 			try {
 				const text = content || thought;
 				if (!text) {
@@ -151,7 +173,8 @@ export function registerCaptureThought(server: McpServer) {
 				};
 
 				if (!shouldDecompose(text, DECOMPOSE_ENABLED)) {
-					const { id, metadata, category: savedCategory } = await saveSingleThought(text, overrides);
+					const { id, metadata, category: savedCategory, embedding, created_at } =
+						await saveSingleThought(text, overrides);
 
 					let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${id})`;
 					if (savedCategory) confirmation += ` [${savedCategory}]`;
@@ -165,11 +188,23 @@ export function registerCaptureThought(server: McpServer) {
 					if (recurrence) confirmation += ` | Recurring`;
 					if (priority && priority > 0) confirmation += ` | Priority: ${PRIORITY_LABELS[priority]}`;
 
+					if (source_ids?.length) await insertSourceRelations(id, source_ids);
+
 					// Detect relations in background (non-blocking for the response)
 					const relations = await detectRelations(id, text);
 					if (relations.length) {
 						confirmation += `\nRelations: ${relations.join("; ")}`;
 					}
+
+					// Update topic pages non-blocking
+					updateTopicPagesForThought(
+						id,
+						text,
+						embedding,
+						created_at,
+						Array.isArray(metadata.topics) ? (metadata.topics as string[]) : [],
+						metadata.memory_type as string | undefined,
+					).catch((e) => console.error("Topic page update error:", e));
 
 					return {
 						content: [{ type: "text" as const, text: confirmation }],
@@ -180,12 +215,24 @@ export function registerCaptureThought(server: McpServer) {
 				const atomicThoughts = await decomposeWithLLM(text);
 
 				if (!atomicThoughts) {
-					const { id, metadata, category: savedCategory } = await saveSingleThought(text, overrides);
+					const { id, metadata, category: savedCategory, embedding, created_at } =
+						await saveSingleThought(text, overrides);
 
 					let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${id})`;
 					if (savedCategory) confirmation += ` [${savedCategory}]`;
 					if (Array.isArray(metadata.topics) && metadata.topics.length)
 						confirmation += ` — ${(metadata.topics as string[]).join(", ")}`;
+
+					if (source_ids?.length) await insertSourceRelations(id, source_ids);
+
+					updateTopicPagesForThought(
+						id,
+						text,
+						embedding,
+						created_at,
+						Array.isArray(metadata.topics) ? (metadata.topics as string[]) : [],
+						metadata.memory_type as string | undefined,
+					).catch((e) => console.error("Topic page update error:", e));
 
 					return {
 						content: [{ type: "text" as const, text: confirmation }],
@@ -210,8 +257,19 @@ export function registerCaptureThought(server: McpServer) {
 					});
 					children.push({ id: child.id, topic: item.topic });
 
+					if (source_ids?.length) await insertSourceRelations(child.id, source_ids);
+
 					const rels = await detectRelations(child.id, item.content, parent.id);
 					allRelations.push(...rels);
+
+					updateTopicPagesForThought(
+						child.id,
+						item.content,
+						child.embedding,
+						child.created_at,
+						[item.topic],
+						child.metadata.memory_type as string | undefined,
+					).catch((e) => console.error("Topic page update error:", e));
 				}
 
 				const topicList = children.map((c) => c.topic).join(", ");
