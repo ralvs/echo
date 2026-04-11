@@ -1,4 +1,4 @@
-import { OPENROUTER_API_KEY, OPENROUTER_BASE } from "./config.ts";
+import { AI_GATEWAY_API_KEY, AI_GATEWAY_BASE } from "./config.ts";
 
 /**
  * Builds the text that gets embedded for a thought.
@@ -20,10 +20,10 @@ export function buildEmbeddingText(
 }
 
 export async function getEmbedding(text: string): Promise<number[]> {
-	const r = await fetch(`${OPENROUTER_BASE}/embeddings`, {
+	const r = await fetch(`${AI_GATEWAY_BASE}/embeddings`, {
 		method: "POST",
 		headers: {
-			Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+			Authorization: `Bearer ${AI_GATEWAY_API_KEY}`,
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({
@@ -33,17 +33,17 @@ export async function getEmbedding(text: string): Promise<number[]> {
 	});
 	if (!r.ok) {
 		const msg = await r.text().catch(() => "");
-		throw new Error(`OpenRouter embeddings failed: ${r.status} ${msg}`);
+		throw new Error(`AI Gateway embeddings failed: ${r.status} ${msg}`);
 	}
 	const d = await r.json();
 	return d.data[0].embedding;
 }
 
 export async function extractMetadata(text: string): Promise<Record<string, unknown>> {
-	const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+	const r = await fetch(`${AI_GATEWAY_BASE}/chat/completions`, {
 		method: "POST",
 		headers: {
-			Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+			Authorization: `Bearer ${AI_GATEWAY_API_KEY}`,
 			"Content-Type": "application/json",
 		},
 		body: JSON.stringify({
@@ -86,7 +86,7 @@ Return ONLY valid JSON, no markdown fences or extra text.`,
 
 	if (!r.ok) {
 		const msg = await r.text().catch(() => "");
-		console.error(`OpenRouter extraction failed: ${r.status} ${msg}`);
+		console.error(`AI Gateway extraction failed: ${r.status} ${msg}`);
 		return { topics: ["uncategorized"], type: "observation" };
 	}
 
@@ -108,10 +108,10 @@ export async function classifyRelation(
 	confidence: number;
 } | null> {
 	try {
-		const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+		const r = await fetch(`${AI_GATEWAY_BASE}/chat/completions`, {
 			method: "POST",
 			headers: {
-				Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+				Authorization: `Bearer ${AI_GATEWAY_API_KEY}`,
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({
@@ -188,10 +188,10 @@ Rules:
 		: `Topic: ${title}\n\nThoughts to compile:\n\n${thoughtsText}`;
 
 	try {
-		const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+		const r = await fetch(`${AI_GATEWAY_BASE}/chat/completions`, {
 			method: "POST",
 			headers: {
-				Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+				Authorization: `Bearer ${AI_GATEWAY_API_KEY}`,
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({
@@ -303,10 +303,10 @@ export async function detectContradictions(
 			.join("\n\n");
 
 		try {
-			const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+			const r = await fetch(`${AI_GATEWAY_BASE}/chat/completions`, {
 				method: "POST",
 				headers: {
-					Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+					Authorization: `Bearer ${AI_GATEWAY_API_KEY}`,
 					"Content-Type": "application/json",
 				},
 				body: JSON.stringify({
@@ -351,10 +351,10 @@ export async function decomposeWithLLM(
 	text: string,
 ): Promise<{ content: string; type: string; topic: string }[] | null> {
 	try {
-		const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+		const r = await fetch(`${AI_GATEWAY_BASE}/chat/completions`, {
 			method: "POST",
 			headers: {
-				Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+				Authorization: `Bearer ${AI_GATEWAY_API_KEY}`,
 				"Content-Type": "application/json",
 			},
 			body: JSON.stringify({

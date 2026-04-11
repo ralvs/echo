@@ -25,8 +25,8 @@ A personal knowledge capture system. Thoughts go in, get tagged and embedded by 
 | Frontend | Next.js 16 (App Router) + TypeScript |
 | Backend / DB | Supabase (PostgreSQL + pgvector) |
 | Edge functions | Deno (Supabase Edge Functions) |
-| Embeddings | OpenRouter → OpenAI `text-embedding-3-small` |
-| Metadata extraction | OpenRouter → Claude Haiku 4.5 |
+| Embeddings | Vercel AI Gateway → OpenAI `text-embedding-3-small` |
+| Metadata extraction | Vercel AI Gateway → Claude Haiku 4.5 |
 | Styling | Tailwind CSS 4 |
 | State | Zustand |
 | Linting / formatting | Biome |
@@ -202,7 +202,7 @@ echo/
 │   └── page.tsx            # Dashboard
 ├── components/
 ├── lib/
-│   ├── ai.ts               # OpenRouter calls (metadata + embeddings)
+│   ├── ai.ts               # AI Gateway calls (metadata + embeddings)
 │   ├── types.ts
 │   ├── supabase.ts
 │   └── store.ts            # Zustand store
@@ -248,7 +248,7 @@ Create `.env.local`:
 NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable-key>
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-OPENROUTER_API_KEY=<openrouter-key>
+AI_GATEWAY_API_KEY=<vercel-ai-gateway-key>
 ```
 
 Edge function secrets (set via Supabase dashboard or CLI):
@@ -286,7 +286,7 @@ supabase functions deploy echo-mcp
 
 # Set secrets
 supabase secrets set MCP_PUBLISHABLE_KEY=<value>
-supabase secrets set OPENROUTER_API_KEY=<value>
+supabase secrets set AI_GATEWAY_API_KEY=<value>
 supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<value>
 
 # Deploy frontend to Vercel

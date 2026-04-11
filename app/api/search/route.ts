@@ -1,3 +1,4 @@
+import { embed } from "ai";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
@@ -8,27 +9,15 @@ export async function POST(req: NextRequest) {
 		return NextResponse.json({ error: "query is required" }, { status: 400 });
 	}
 
-	// Generate embedding via OpenRouter
-	const embRes = await fetch("https://openrouter.ai/api/v1/embeddings", {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			model: "openai/text-embedding-3-small",
-			input: query,
-		}),
+	const { embedding } = await embed({
+		model: "openai/text-embedding-3-small",
+		value: query,
 	});
-
-	const embData = await embRes.json();
-	const embedding = embData.data?.[0]?.embedding;
 
 	if (!embedding) {
 		return NextResponse.json({ error: "Failed to generate embedding" }, { status: 500 });
 	}
 
-	// Use Supabase service client for RPC
 	const { createServiceClient } = await import("@/lib/supabase");
 	const supabase = createServiceClient();
 

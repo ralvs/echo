@@ -1,10 +1,4 @@
-const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
-
-function getApiKey() {
-	const key = process.env.OPENROUTER_API_KEY;
-	if (!key) throw new Error("OPENROUTER_API_KEY is not set");
-	return key;
-}
+import { embed, generateText } from "ai";
 
 function getExtractionPrompt() {
 	const now = new Date().toISOString();
@@ -29,58 +23,29 @@ Return ONLY valid JSON, no markdown fences or extra text.`;
 }
 
 export async function getEmbedding(text: string): Promise<number[]> {
-	const r = await fetch(`${OPENROUTER_BASE}/embeddings`, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${getApiKey()}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
-			model: "openai/text-embedding-3-small",
-			input: text,
-		}),
+	const { embedding } = await embed({
+		model: "openai/text-embedding-3-small",
+		value: text,
 	});
-	if (!r.ok) {
-		const msg = await r.text().catch(() => "");
-		throw new Error(`OpenRouter embeddings failed: ${r.status} ${msg}`);
-	}
-	const d = await r.json();
-	return d.data[0].embedding;
+	return embedding;
 }
 
 export async function extractMetadata(
 	text: string,
 ): Promise<Record<string, unknown>> {
-	const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${getApiKey()}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify({
+	try {
+		const { text: content } = await generateText({
 			model: "anthropic/claude-haiku-4-5",
-			max_tokens: 1024,
-			response_format: { type: "json_object" },
+			maxTokens: 1024,
 			messages: [
 				{ role: "system", content: getExtractionPrompt() },
 				{ role: "user", content: text },
 			],
-		}),
-	});
-
-	if (!r.ok) {
-		const msg = await r.text().catch(() => "");
-		console.error(`OpenRouter extraction failed: ${r.status} ${msg}`);
-		return { topics: ["uncategorized"], type: "observation" };
-	}
-
-	const d = await r.json();
-	try {
-		const raw = d.choices[0].message.content as string;
-		const clean = raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+		});
+		const clean = content.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
 		return JSON.parse(clean);
 	} catch (err) {
-		console.error("Failed to parse extraction response:", err);
+		console.error("Failed to extract metadata:", err);
 		return { topics: ["uncategorized"], type: "observation" };
 	}
 }

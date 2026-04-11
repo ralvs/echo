@@ -2,7 +2,7 @@ import { type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { supabase } from "../config.ts";
-import { OPENROUTER_API_KEY, OPENROUTER_BASE } from "../config.ts";
+import { AI_GATEWAY_API_KEY, AI_GATEWAY_BASE } from "../config.ts";
 
 export function registerGetProfile(server: McpServer) {
 	server.registerTool(
@@ -75,10 +75,10 @@ export function registerGetProfile(server: McpServer) {
 				}
 
 				// Synthesize with LLM
-				const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+				const r = await fetch(`${AI_GATEWAY_BASE}/chat/completions`, {
 					method: "POST",
 					headers: {
-						Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+						Authorization: `Bearer ${AI_GATEWAY_API_KEY}`,
 						"Content-Type": "application/json",
 					},
 					body: JSON.stringify({
