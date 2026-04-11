@@ -73,3 +73,15 @@ export type ThoughtStats = {
 	topics: Record<string, number>;
 	people: Record<string, number>;
 };
+
+export type TopicPage = {
+	id: string;
+	slug: string;
+	title: string;
+	summary: string;
+	thought_ids: string[];
+	thought_count: number;
+	metadata: Record<string, unknown>;
+	created_at: string;
+	updated_at: string;
+};

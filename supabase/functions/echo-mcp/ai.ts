@@ -156,6 +156,197 @@ Return ONLY valid JSON: {"relation": "<type>", "confidence": <0.0-1.0>}`,
 	}
 }
 
+export async function compileTopicPage(
+	title: string,
+	existingSummary: string | null,
+	newThoughts: { content: string; created_at: string; memory_type?: string }[],
+): Promise<string> {
+	const thoughtsText = newThoughts
+		.map((t, i) => `[${i + 1}] (${new Date(t.created_at).toLocaleDateString()}) ${t.content}`)
+		.join("\n\n");
+
+	const systemPrompt = existingSummary
+		? `You maintain a personal knowledge wiki page. Given the current page summary and new thoughts to integrate, produce an updated markdown summary.
+
+Rules:
+- Preserve all existing knowledge; integrate new information smoothly
+- If new thoughts contradict existing facts, note the conflict and show the latest value
+- Keep it concise and structured — use headers, bullet points, and bold key facts
+- Do NOT add preamble like "Here is the updated summary"
+- Return ONLY the markdown content`
+		: `You are creating a new personal knowledge wiki page. Given a set of captured thoughts, produce a structured markdown summary of everything known about this topic.
+
+Rules:
+- Organize by sub-topic using headers
+- Bold key facts, names, and values
+- Keep it concise but complete — include all meaningful details
+- Do NOT add preamble
+- Return ONLY the markdown content`;
+
+	const userContent = existingSummary
+		? `# Current Page: ${title}\n\n${existingSummary}\n\n---\n\nNew thoughts to integrate:\n\n${thoughtsText}`
+		: `Topic: ${title}\n\nThoughts to compile:\n\n${thoughtsText}`;
+
+	try {
+		const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "anthropic/claude-haiku-4-5",
+				max_tokens: 2048,
+				messages: [
+					{ role: "system", content: systemPrompt },
+					{ role: "user", content: userContent },
+				],
+			}),
+		});
+
+		if (!r.ok) return existingSummary ?? `# ${title}\n\n*(compilation failed)*`;
+		const d = await r.json();
+		return (d.choices[0].message.content as string).trim();
+	} catch {
+		return existingSummary ?? `# ${title}\n\n*(compilation failed)*`;
+	}
+}
+
+export function identifyTopicPage(
+	topics: string[],
+	existingPages: { slug: string; title: string; embedding: number[] }[],
+	thoughtEmbedding: number[],
+	CREATION_THRESHOLD: number = 3,
+): { slug: string; title: string; isNew: boolean } | null {
+	if (!topics.length) return null;
+
+	// Normalize topic to slug
+	const toSlug = (t: string) =>
+		t
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-+|-+$/g, "");
+
+	// 1. Exact slug match
+	for (const topic of topics) {
+		const slug = toSlug(topic);
+		const match = existingPages.find((p) => p.slug === slug);
+		if (match) return { slug: match.slug, title: match.title, isNew: false };
+	}
+
+	// 2. Embedding similarity match (>0.85)
+	if (existingPages.length > 0) {
+		let bestSim = 0;
+		let bestPage: (typeof existingPages)[0] | null = null;
+
+		for (const page of existingPages) {
+			if (!page.embedding?.length) continue;
+			let dot = 0;
+			let normA = 0;
+			let normB = 0;
+			for (let i = 0; i < thoughtEmbedding.length; i++) {
+				dot += thoughtEmbedding[i] * page.embedding[i];
+				normA += thoughtEmbedding[i] ** 2;
+				normB += page.embedding[i] ** 2;
+			}
+			const sim = dot / (Math.sqrt(normA) * Math.sqrt(normB) || 1);
+			if (sim > bestSim) {
+				bestSim = sim;
+				bestPage = page;
+			}
+		}
+
+		if (bestSim > 0.85 && bestPage) {
+			return { slug: bestPage.slug, title: bestPage.title, isNew: false };
+		}
+	}
+
+	// 3. No match — signal potential new page (caller checks count threshold)
+	const primaryTopic = topics[0];
+	return {
+		slug: toSlug(primaryTopic),
+		title: primaryTopic
+			.split(/[\s-]+/)
+			.map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+			.join(" "),
+		isNew: true,
+	};
+}
+
+export async function detectContradictions(
+	facts: { id: string; content: string; topics: string[] }[],
+): Promise<{ thought_a: string; thought_b: string; explanation: string }[]> {
+	if (facts.length < 2) return [];
+
+	// Group by topic overlap — only send clusters to the LLM
+	const clusters: Map<string, typeof facts> = new Map();
+	for (const fact of facts) {
+		for (const topic of fact.topics) {
+			const key = topic.toLowerCase();
+			if (!clusters.has(key)) clusters.set(key, []);
+			clusters.get(key)!.push(fact);
+		}
+	}
+
+	const results: { thought_a: string; thought_b: string; explanation: string }[] = [];
+	const seen = new Set<string>();
+
+	for (const [, cluster] of clusters) {
+		if (cluster.length < 2) continue;
+
+		// Deduplicate cluster entries by ID
+		const unique = cluster.filter((f, i, arr) => arr.findIndex((x) => x.id === f.id) === i);
+		if (unique.length < 2) continue;
+
+		const factsText = unique
+			.map((f, i) => `[${i + 1}] (ID: ${f.id}) ${f.content}`)
+			.join("\n\n");
+
+		try {
+			const r = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-haiku-4-5",
+					max_tokens: 512,
+					response_format: { type: "json_object" },
+					messages: [
+						{
+							role: "system",
+							content: `You are checking a personal knowledge base for contradictions. Given a list of facts, identify any pairs that directly contradict each other (different values for the same thing, e.g. two different addresses, two different phone numbers, conflicting statements).
+
+Return ONLY valid JSON: {"contradictions": [{"thought_a": "<id>", "thought_b": "<id>", "explanation": "<brief reason>"}]}
+If there are no contradictions, return: {"contradictions": []}`,
+						},
+						{ role: "user", content: factsText },
+					],
+				}),
+			});
+
+			if (!r.ok) continue;
+			const d = await r.json();
+			const raw = d.choices[0].message.content as string;
+			const clean = raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+			const parsed = JSON.parse(clean);
+
+			for (const c of parsed.contradictions ?? []) {
+				const pairKey = [c.thought_a, c.thought_b].sort().join("|");
+				if (!seen.has(pairKey)) {
+					seen.add(pairKey);
+					results.push(c);
+				}
+			}
+		} catch {
+			// Skip failed clusters
+		}
+	}
+
+	return results;
+}
+
 export async function decomposeWithLLM(
 	text: string,
 ): Promise<{ content: string; type: string; topic: string }[] | null> {

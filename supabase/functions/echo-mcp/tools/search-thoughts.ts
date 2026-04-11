@@ -94,6 +94,27 @@ export function registerSearchThoughts(server: McpServer) {
 					};
 				}
 
+				// Fetch relevant topic pages as a compiled preamble
+				let topicPreamble = "";
+				try {
+					const { data: pages } = await supabase.rpc("search_topic_pages", {
+						query_text: query,
+						query_embedding: qEmb,
+						match_threshold: 0.5,
+						match_count: 2,
+					});
+					if (pages?.length) {
+						topicPreamble = pages
+							.map(
+								(p: { title: string; summary: string; updated_at: string; thought_count: number }) =>
+									`╔═ Topic Page: ${p.title} (${p.thought_count} thoughts, updated ${new Date(p.updated_at).toLocaleDateString()}) ═╗\n${p.summary}\n╚══════════════════════════════════════════════════════╝`,
+							)
+							.join("\n\n");
+					}
+				} catch {
+					// Non-blocking — search results are still returned even if preamble fails
+				}
+
 				const results = filtered.map(
 					(
 						t: {
@@ -142,11 +163,15 @@ export function registerSearchThoughts(server: McpServer) {
 					},
 				);
 
+				const header = topicPreamble
+					? `${topicPreamble}\n\n--- Individual Results (${filtered.length}) ---\n\n`
+					: `Found ${filtered.length} thought(s):\n\n`;
+
 				return {
 					content: [
 						{
 							type: "text" as const,
-							text: `Found ${filtered.length} thought(s):\n\n${results.join("\n\n")}`,
+							text: `${header}${results.join("\n\n")}`,
 						},
 					],
 				};
