@@ -6,13 +6,15 @@ A personal knowledge capture system. Thoughts go in, get tagged and embedded by 
 
 - **Capture** text thoughts; AI extracts type, topics, people, action items, priority, dates, memory type, and temporal anchors
 - **Search** using hybrid semantic + full-text search (pgvector + tsvector) with memory-aware relevance decay
+- **Compound** knowledge into auto-maintained topic pages — pre-synthesized summaries updated on every capture, prepended as context in search results
 - **Schedule** tasks with due dates, priorities, and recurrence rules
 - **Decompose** multi-topic inputs into atomic thoughts automatically, with parent context injected in search results
 - **Classify** memories as fact, preference, episodic, or procedural — each decays differently in search ranking
-- **Relate** thoughts automatically via a knowledge graph (updates, extends, derives, related)
+- **Relate** thoughts automatically via a knowledge graph (updates, extends, derives, related); explicit provenance via `source_ids`
+- **Lint** the knowledge base — detect contradictions, orphaned thoughts, stale facts, and near-duplicates
 - **Profile** synthesize a structured user profile from captured knowledge (static facts + dynamic activity)
 - **Version** every thought update; history archived in `thought_versions`
-- **MCP server** exposes 10 tools so Claude can read, write, and reason about thoughts directly
+- **MCP server** exposes 14 tools so Claude can read, write, reason, and maintain the knowledge base directly
 
 ## Architecture
 
@@ -40,6 +42,17 @@ Everything lives in one `thoughts` table. No type-specific extension tables, no 
 **JSONB `recurrence`**: interval_days, unit, days_of_week, day_of_month, end_at
 
 **Why single table:** Extension tables solve fragmentation that doesn't exist here. JSONB + GIN + pgvector gives flexible querying without the complexity of classification routing, dedup, and bidirectional sync. When adding new data kinds: enrich the metadata extraction prompt, or add a real column only if it needs efficient sorting/indexing. Don't create new tables.
+
+### Topic pages (compounding layer)
+
+Inspired by Karpathy's "LLM Wiki" pattern. Rather than re-synthesizing knowledge on every query (pure RAG), Echo maintains a `topic_pages` table of LLM-compiled summary documents — one per active topic.
+
+**How it works:**
+- When a topic accumulates 3+ thoughts, a page is created with a full LLM compilation
+- Each subsequent capture **incrementally updates** the relevant page — the LLM sees only the existing summary + the new thought, not all source thoughts
+- When `search_thoughts` is called, relevant topic pages are fetched and **prepended as a compiled preamble** before individual results — so the LLM gets pre-synthesized context without re-reading raw thoughts
+
+Pages are updated non-blocking after capture (fire-and-forget — capture never fails if page update fails). Use `refresh_topic_page` to force a full recompilation.
 
 ### Hybrid search
 
@@ -77,6 +90,8 @@ When a new thought is captured, it's compared against existing thoughts (similar
 
 Relations are stored in a `thought_relations` table and traversable via the `get_thought_context` tool.
 
+**Explicit provenance:** `capture_thought` accepts `source_ids: string[]`. When provided, `derives` relations are created at confidence 1.0 without going through the LLM classifier — deterministic provenance for when Claude synthesizes an answer from specific sources and captures it.
+
 ### Decomposition
 
 When a capture is long or covers multiple topics, the LLM automatically splits it into atomic thoughts. The original becomes a parent bundle (`is_bundle = true`) and is excluded from search results. Child thoughts reference it via `parent_id`.
@@ -105,16 +120,20 @@ The Supabase service role key is used internally for DB access and is never expo
 
 | Tool | Description |
 |---|---|
-| `capture_thought` | Save a new thought; extracts metadata, detects relations, supports decomposition |
-| `search_thoughts` | Semantic hybrid search with decay-adjusted scores and parent context injection |
+| `capture_thought` | Save a new thought; extracts metadata, detects relations, updates topic pages, supports decomposition and explicit `source_ids` |
+| `search_thoughts` | Hybrid search with decay-adjusted scores, topic page preamble, and parent context injection |
 | `list_thoughts` | Filtered listing with sorting by date, due date, or priority |
 | `list_due` | Show overdue and upcoming tasks |
 | `update_thought` | Modify content/metadata; archives previous version |
 | `resolve_thought` | Mark done (or reopen); for recurring: advances due date |
-| `delete_thought` | Permanently delete with cascade to versions |
+| `delete_thought` | Permanently delete with cascade to versions and relations |
 | `thought_stats` | Summary statistics |
 | `get_thought_context` | Traverse the knowledge graph — show a thought and all its relations (depth 1–2) |
 | `get_profile` | Synthesize a structured user profile (static facts/preferences + dynamic activity) |
+| `list_topic_pages` | List all compiled topic pages with titles, source counts, and last-updated dates |
+| `get_topic_page` | Retrieve a topic page by slug or ID — full compiled summary + source thought IDs |
+| `refresh_topic_page` | Force full recompilation of a topic page from all its source thoughts |
+| `lint_thoughts` | Health-check: detect contradictions, orphaned episodic thoughts, stale facts, and near-duplicates |
 
 ### Claude Code config
 
@@ -154,14 +173,26 @@ echo/
 │   └── store.ts            # Zustand store
 └── supabase/
     ├── functions/
-    └── functions/
-        └── echo-mcp/
-            ├── index.ts        # Hono app + MCP server factory
-            ├── config.ts
-            ├── ai.ts           # LLM calls (metadata, embeddings, relation classification)
-            ├── decompose.ts    # Decomposition logic
-            ├── recurrence.ts   # Recurrence advancement
-            └── tools/          # One file per MCP tool (10 tools)
+    │   └── echo-mcp/
+    │       ├── index.ts        # Hono app + MCP server factory (v5.0.0)
+    │       ├── config.ts
+    │       ├── ai.ts           # LLM calls (metadata, embeddings, relation classification, topic compilation)
+    │       ├── decompose.ts    # Decomposition logic + saveSingleThought
+    │       ├── recurrence.ts   # Recurrence advancement
+    │       ├── topic-pages.ts  # Topic page lifecycle (create, incremental update, recompile)
+    │       └── tools/          # One file per MCP tool (14 tools)
+    └── migrations/
+        ├── 00002_add_versioning.sql
+        ├── 00003_add_scheduling.sql
+        ├── 00004_add_decomposition.sql
+        ├── 00005_enable_rls_thought_versions.sql
+        ├── 00006_fix_function_search_paths.sql
+        ├── 00008_add_hybrid_search.sql
+        ├── 00009_memory_classification.sql
+        ├── 00010_temporal_grounding.sql
+        ├── 00011_knowledge_graph.sql
+        ├── 00012_topic_pages.sql
+        └── 00013_lint_support.sql
 ```
 
 ---
@@ -212,6 +243,9 @@ bun dev
 ### Deploy
 
 ```bash
+# Apply migrations
+supabase db push
+
 # Deploy edge function
 supabase functions deploy echo-mcp
 
@@ -241,4 +275,8 @@ vercel --prod
 | Memory-type decay applied post-query | Keeps the DB function simple; decay logic is easy to tune in application code |
 | `event_at` as real column (not JSONB) | Enables efficient temporal range queries and sorting |
 | Relation detection threshold ≥ 0.8 | High bar before triggering LLM classification avoids false positives and unnecessary API calls |
-| `is_latest` flag on relations | Supermemory's pattern — cleaner than `superseded_by` in metadata for tracking update chains |
+| `is_latest` flag on relations | Cleaner than `superseded_by` in metadata for tracking update chains |
+| `topic_pages` as a separate table (not reusing `thoughts`) | Topic pages are system-generated compilations; mixing them into `thoughts` would require filtering them out of every existing query, list, stat, and decomposition check |
+| Topic page updates are non-blocking (fire-and-forget) | Capture must never fail because a background compilation failed; data loss on page miss is acceptable |
+| `source_ids` bypasses LLM relation classifier | Explicit provenance is always `derives` at confidence 1.0 — no need to re-classify what the caller already knows |
+| Lint tool is on-demand, not a background job | Keeps the user in the loop; contradiction detection via LLM requires a deliberate trigger |
