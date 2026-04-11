@@ -54,11 +54,28 @@ Inspired by Karpathy's "LLM Wiki" pattern. Rather than re-synthesizing knowledge
 
 Pages are updated non-blocking after capture (fire-and-forget — capture never fails if page update fails). Use `refresh_topic_page` to force a full recompilation.
 
+### Capture pipeline
+
+Every capture runs two LLM calls **in parallel** to minimize latency:
+
+1. **Metadata extraction** (Claude Haiku) — extracts type, topics, people, action items, dates, memory type, `expires_at`, `event_at`, priority, category, recurrence, and cost/url/rating when present
+2. **Embedding** (text-embedding-3-small) — generates a 1536-dim vector from enriched text (content + topics + category appended) so semantic similarity captures metadata concepts, not just raw text
+
+After saving, two more non-blocking steps run:
+- **Relation detection** — searches for high-similarity existing thoughts (≥ 0.8) and asks the LLM to classify the relationship (updates / extends / derives / related)
+- **Topic page update** — checks whether any of the thought's topics should create or update a compiled topic page
+
 ### Hybrid search
 
 `hybrid_search` RPC blends **70% vector similarity** (pgvector cosine) + **30% full-text rank** (tsvector). A thought matches if either similarity exceeds threshold or a full-text match exists. A `search_vector` column is maintained by trigger on `content`, topics, and category. Expired thoughts (`expires_at < now()`) are filtered at the DB level.
 
-Embeddings are enriched before indexing: topics, category, and type are appended to the content so semantic similarity captures metadata concepts.
+### Search result enrichment
+
+A `search_thoughts` response is composed of three layers, in order:
+
+1. **Topic page preamble** — relevant topic pages (fetched via `search_topic_pages` RPC, same 70/30 blend) are prepended as compiled summaries. The LLM gets pre-synthesized context before seeing individual results.
+2. **Individual results** — decay-adjusted similarity scores (memory type multiplier applied post-query), sorted descending. Bundle parents excluded.
+3. **Parent context injection** — decomposed child thoughts include their parent bundle's original text as "Original context", so the full capture is visible without duplicating results.
 
 ### Memory classification and relevance decay
 
@@ -97,6 +114,24 @@ Relations are stored in a `thought_relations` table and traversable via the `get
 When a capture is long or covers multiple topics, the LLM automatically splits it into atomic thoughts. The original becomes a parent bundle (`is_bundle = true`) and is excluded from search results. Child thoughts reference it via `parent_id`.
 
 When a decomposed child appears in search results, the parent bundle's content is fetched and included as "Original context" — giving the LLM the full picture without sacrificing atomic precision.
+
+### Lint
+
+On-demand health-check across the entire corpus via the `lint_thoughts` tool. Four checks, run selectively or all at once:
+
+- **Contradictions** (LLM) — fetches all `fact` and `preference` thoughts, groups them by topic overlap, and sends each cluster to Claude Haiku to identify conflicting claims (e.g. two different doctors, two different addresses)
+- **Orphans** (SQL) — episodic thoughts older than 90 days with no relations and no parent bundle; candidates for deletion or consolidation
+- **Stale facts** (SQL) — facts/preferences where all `updates` relations pointing to them have `is_latest = false`, meaning they've been fully superseded
+- **Near-duplicates** (embedding) — thought pairs with cosine similarity ≥ 0.95 via the `find_near_duplicates` RPC; candidates for merging
+
+### Profile synthesis
+
+`get_profile` synthesizes a structured user profile from captured thoughts. It queries two independent sets:
+
+- **Static** (limit 100) — `fact` and `preference` memory types; things that persist
+- **Dynamic** (limit 50) — recent `episodic` thoughts + open tasks; current context
+
+Both sets are sent to Claude Haiku, which returns structured JSON covering facts, preferences, known people, active projects, upcoming events, recent topics, and open tasks. An optional `focus` parameter emphasizes a specific domain.
 
 ### Versioning and recurrence
 
