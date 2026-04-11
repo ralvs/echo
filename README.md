@@ -25,6 +25,7 @@ A personal knowledge capture system. Thoughts go in, get tagged and embedded by 
 | Frontend | Next.js 16 (App Router) + TypeScript |
 | Backend / DB | Supabase (PostgreSQL + pgvector) |
 | Edge functions | Deno (Supabase Edge Functions) |
+| AI SDK | Vercel AI SDK (`ai` + `@ai-sdk/gateway`) |
 | Embeddings | Vercel AI Gateway → OpenAI `text-embedding-3-small` |
 | Metadata extraction | Vercel AI Gateway → Claude Haiku 4.5 |
 | Styling | Tailwind CSS 4 |
@@ -256,7 +257,7 @@ Edge function secrets (set via Supabase dashboard or CLI):
 ```
 MCP_PUBLISHABLE_KEY=<generate a random string — this is the bearer token for MCP>
 MCP_ACCESS_KEY=<access key for reembed-thoughts function>
-OPENROUTER_API_KEY=<same key>
+AI_GATEWAY_API_KEY=<vercel-ai-gateway-key>
 SUPABASE_SERVICE_ROLE_KEY=<service role key>
 ```
 
