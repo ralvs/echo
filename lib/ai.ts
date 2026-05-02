@@ -1,4 +1,5 @@
-import { embed, generateText } from "ai";
+import { generateText } from "ai";
+export { getEmbedding } from "./embeddings";
 import { z } from "zod";
 
 const ExtractionSchema = z.object({
@@ -87,14 +88,6 @@ Extract metadata from the user's captured thought. Return JSON with:
 - "sentiment": overall sentiment of the thought toward its subject — "positive", "negative", or "neutral". null if purely informational with no discernible sentiment.
 Only extract what's explicitly there. Do not infer or fabricate. Resolve relative dates using today's date.
 Return ONLY valid JSON, no markdown fences or extra text.`;
-}
-
-export async function getEmbedding(text: string): Promise<number[]> {
-	const { embedding } = await embed({
-		model: "openai/text-embedding-3-small",
-		value: text,
-	});
-	return embedding;
 }
 
 export async function extractMetadata(text: string): Promise<ExtractedMetadata> {

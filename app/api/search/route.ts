@@ -1,5 +1,5 @@
-import { embed } from "ai";
 import { type NextRequest, NextResponse } from "next/server";
+import { getEmbedding } from "@/lib/embeddings";
 import { applyDecay } from "@/lib/search-assembly";
 
 export async function POST(req: NextRequest) {
@@ -10,14 +10,7 @@ export async function POST(req: NextRequest) {
 		return NextResponse.json({ error: "query is required" }, { status: 400 });
 	}
 
-	const { embedding } = await embed({
-		model: "openai/text-embedding-3-small",
-		value: query,
-	});
-
-	if (!embedding) {
-		return NextResponse.json({ error: "Failed to generate embedding" }, { status: 500 });
-	}
+	const embedding = await getEmbedding(query);
 
 	const { createServiceClient } = await import("@/lib/supabase");
 	const supabase = createServiceClient();

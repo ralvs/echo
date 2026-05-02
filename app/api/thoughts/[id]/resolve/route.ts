@@ -1,34 +1,7 @@
 import { createServiceClient } from "@/lib/supabase";
+import { advanceRecurrence } from "@/lib/recurrence";
+import type { RecurrenceRule } from "@/lib/types";
 import { NextRequest, NextResponse } from "next/server";
-
-type RecurrenceRule = {
-	interval_days?: number;
-	unit?: "day" | "week" | "month";
-	days_of_week?: number[];
-	day_of_month?: number;
-	end_at?: string;
-};
-
-function calculateNextDue(currentDue: Date, rule: RecurrenceRule): Date {
-	const now = new Date();
-	const next = new Date(Math.max(currentDue.getTime(), now.getTime()));
-
-	if (rule.unit === "month") {
-		next.setMonth(next.getMonth() + (rule.interval_days || 1));
-		if (rule.day_of_month) next.setDate(rule.day_of_month);
-	} else {
-		next.setDate(next.getDate() + (rule.interval_days || 1));
-	}
-
-	if (rule.days_of_week?.length) {
-		const isoDay = (d: Date) => d.getDay() || 7;
-		while (!rule.days_of_week.includes(isoDay(next))) {
-			next.setDate(next.getDate() + 1);
-		}
-	}
-
-	return next;
-}
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
@@ -83,8 +56,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 		});
 
 		// Calculate next due
-		const currentDue = current.due_at ? new Date(current.due_at) : new Date();
-		const nextDue = calculateNextDue(currentDue, rule);
+		const currentDue = current.due_at ? new Date(current.due_at) : null;
+		const nextDue = advanceRecurrence(currentDue, rule, new Date());
 
 		const completionCount = ((currentMetadata.completion_count as number) || 0) + 1;
 		const metadata = {
