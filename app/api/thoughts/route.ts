@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { extractMetadata, getEmbedding } from "@/lib/ai";
+import { captureThought } from "@/lib/capture";
 import { createServiceClient } from "@/lib/supabase";
 
 const THOUGHT_COLUMNS =
@@ -69,106 +69,28 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-	const supabase = createServiceClient();
 	const body = await req.json();
 
-	const text = body.content;
-	if (!text?.trim()) {
+	if (!body.content?.trim()) {
 		return NextResponse.json({ error: "Content is required" }, { status: 400 });
 	}
 
-	const sourceId = typeof body.source_id === "string" ? body.source_id : null;
-	const sourceKind = typeof body.source_kind === "string" ? body.source_kind : null;
+	try {
+		const result = await captureThought({
+			content: body.content,
+			source_id: typeof body.source_id === "string" ? body.source_id : null,
+			source_kind: typeof body.source_kind === "string" ? body.source_kind : null,
+			due_at: body.due_at ?? null,
+			recurrence: body.recurrence ?? null,
+			priority: body.priority,
+			category: body.category ?? null,
+			expires_at: typeof body.expires_at === "string" ? body.expires_at : null,
+			metadata: body.metadata,
+		});
 
-	// Idempotency check — if a row with this source_id already exists, short-circuit.
-	if (sourceId) {
-		const { data: existing } = await supabase
-			.from("thoughts")
-			.select("id")
-			.eq("source_id", sourceId)
-			.maybeSingle();
-		if (existing) {
-			return NextResponse.json(
-				{ skipped: "duplicate", id: existing.id, source_id: sourceId },
-				{ status: 200 },
-			);
-		}
+		if ("skipped" in result) return NextResponse.json(result, { status: 200 });
+		return NextResponse.json(result, { status: 201 });
+	} catch (err) {
+		return NextResponse.json({ error: (err as Error).message }, { status: 500 });
 	}
-
-	// Run AI processing in parallel: embedding + metadata extraction
-	const [embedding, extracted] = await Promise.all([getEmbedding(text), extractMetadata(text)]);
-
-	// Destructure column fields from metadata fields — no manual delete needed
-	const {
-		category: extractedCategory,
-		due_at: extractedDueAt,
-		recurrence: extractedRecurrence,
-		priority: extractedPriority,
-		expires_at: extractedExpiresAt,
-		event_at: extractedEventAt,
-		...jsonbFields
-	} = extracted;
-
-	// Build metadata — caller overrides take precedence over extracted values
-	const metadata: Record<string, unknown> = { ...jsonbFields, source: "echo" };
-	if (body.metadata?.type) metadata.type = body.metadata.type;
-	if (body.metadata?.topics) metadata.topics = body.metadata.topics;
-	if (body.metadata?.memory_type) metadata.memory_type = body.metadata.memory_type;
-
-	// Auto-set status for actionable thoughts
-	const effectiveType = metadata.type as string;
-	const effectiveDueAt = body.due_at || extractedDueAt;
-	if (
-		effectiveType === "task" ||
-		effectiveDueAt ||
-		(Array.isArray(metadata.action_items) && metadata.action_items.length > 0)
-	) {
-		metadata.status = "open";
-	}
-
-	const row: Record<string, unknown> = {
-		content: text,
-		embedding,
-		metadata,
-	};
-
-	// Real columns — caller overrides > extracted values
-	if (body.due_at || extractedDueAt) row.due_at = body.due_at || extractedDueAt;
-	if (body.recurrence || extractedRecurrence)
-		row.recurrence = body.recurrence || extractedRecurrence;
-	if (body.priority !== undefined) {
-		row.priority = body.priority;
-	} else if (extractedPriority && extractedPriority > 0) {
-		row.priority = extractedPriority;
-	}
-	row.category = body.category || extractedCategory || null;
-
-	if (sourceId) row.source_id = sourceId;
-	if (sourceKind) row.source_kind = sourceKind;
-	if (typeof body.expires_at === "string") row.expires_at = body.expires_at;
-	if (extractedExpiresAt && !body.expires_at) row.expires_at = extractedExpiresAt;
-	if (extractedEventAt) row.event_at = extractedEventAt;
-
-	const { data, error } = await supabase
-		.from("thoughts")
-		.insert(row)
-		.select(THOUGHT_COLUMNS)
-		.single();
-
-	if (error) {
-		// Postgres unique-violation code — race between idempotency check and insert.
-		if (error.code === "23505" && sourceId) {
-			const { data: existing } = await supabase
-				.from("thoughts")
-				.select("id")
-				.eq("source_id", sourceId)
-				.maybeSingle();
-			return NextResponse.json(
-				{ skipped: "duplicate", id: existing?.id ?? null, source_id: sourceId },
-				{ status: 200 },
-			);
-		}
-		return NextResponse.json({ error: error.message }, { status: 500 });
-	}
-	return NextResponse.json(data, { status: 201 });
 }
