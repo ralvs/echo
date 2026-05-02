@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { useThoughtsStore } from "@/lib/store";
+import type { ThoughtFilters } from "@/lib/types";
 
 export function useThoughtList() {
 	const thoughts = useThoughtsStore((s) => s.thoughts);
@@ -35,5 +36,5 @@ export function useThoughtList() {
 		}
 	}, [filters, setThoughts, setIsLoading]);
 
-	return { thoughts, isLoading, filters, setFilters, refresh };
+	return { thoughts, isLoading, filters, setFilters: setFilters as (f: ThoughtFilters) => void, refresh };
 }

@@ -83,6 +83,18 @@ export type ThoughtStats = {
 	recurringCount: number;
 };
 
+export type ThoughtFilters = {
+	type?: string;
+	topic?: string;
+	person?: string;
+	days?: number;
+	status?: string;
+	category?: string;
+	priority?: number;
+	overdue?: boolean;
+	order_by?: "created_at" | "due_at" | "priority";
+};
+
 export type TopicPage = {
 	id: string;
 	slug: string;
