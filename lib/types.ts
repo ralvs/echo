@@ -78,6 +78,9 @@ export type ThoughtStats = {
 	types: Record<string, number>;
 	topics: Record<string, number>;
 	people: Record<string, number>;
+	categories: Record<string, number>;
+	overdueCount: number;
+	recurringCount: number;
 };
 
 export type TopicPage = {

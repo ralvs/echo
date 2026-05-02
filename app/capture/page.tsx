@@ -1,23 +1,13 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "motion/react";
-
-type CapturedThought = {
-	id: string;
-	metadata: Record<string, unknown>;
-	category: string | null;
-	due_at: string | null;
-	priority: number | null;
-};
+import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
+import { useCapture } from "@/lib/hooks/use-capture";
 
 export default function CapturePage() {
-	const router = useRouter();
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const [content, setContent] = useState("");
-	const [saving, setSaving] = useState(false);
-	const [result, setResult] = useState<CapturedThought | null>(null);
+	const { saving, result, capture, clearResult } = useCapture();
 
 	useEffect(() => {
 		textareaRef.current?.focus();
@@ -32,28 +22,13 @@ export default function CapturePage() {
 	}, [content]);
 
 	const handleCapture = async () => {
-		if (!content.trim() || saving) return;
-		setSaving(true);
-		setResult(null);
-
-		try {
-			const res = await fetch("/api/thoughts", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ content }),
-			});
-			const data = await res.json();
-
-			if (res.ok) {
-				setResult(data);
-				setTimeout(() => {
-					setContent("");
-					setResult(null);
-					textareaRef.current?.focus();
-				}, 3000);
-			}
-		} finally {
-			setSaving(false);
+		const captured = await capture(content);
+		if (captured) {
+			setTimeout(() => {
+				setContent("");
+				clearResult();
+				textareaRef.current?.focus();
+			}, 3000);
 		}
 	};
 
@@ -72,17 +47,9 @@ export default function CapturePage() {
 
 	return (
 		<div className="p-8 max-w-[700px]">
-			<motion.div
-				initial={{ opacity: 0, y: -8 }}
-				animate={{ opacity: 1, y: 0 }}
-				className="mb-8"
-			>
-				<h1 className="font-display text-4xl text-text-primary mb-1">
-					Capture
-				</h1>
-				<p className="text-text-secondary text-sm">
-					Just write. Echo handles the rest.
-				</p>
+			<motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
+				<h1 className="font-display text-4xl text-text-primary mb-1">Capture</h1>
+				<p className="text-text-secondary text-sm">Just write. Echo handles the rest.</p>
 			</motion.div>
 
 			<motion.div
@@ -168,12 +135,8 @@ export default function CapturePage() {
 								>
 									<path d="M20 6L9 17l-5-5" />
 								</svg>
-								<span className="text-sm text-text-primary font-medium">
-									Captured
-								</span>
-								{type && (
-									<span className={`type-tag type-${type}`}>{type.replace(/_/g, " ")}</span>
-								)}
+								<span className="text-sm text-text-primary font-medium">Captured</span>
+								{type && <span className={`type-tag type-${type}`}>{type.replace(/_/g, " ")}</span>}
 							</div>
 
 							{/* Extracted metadata summary */}

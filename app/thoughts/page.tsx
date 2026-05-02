@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { motion, AnimatePresence } from "motion/react";
 import { DateTime } from "luxon";
+import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { useThoughtsStore } from "@/lib/store";
+import { useEffect } from "react";
 import { TypeTag } from "@/components/type-tag";
-import type { Thought } from "@/lib/types";
+import { useSearch } from "@/lib/hooks/use-search";
+import { useThoughtList } from "@/lib/hooks/use-thought-list";
 
 const TYPES = ["observation", "task", "idea", "reference", "person_note"];
 const TIME_RANGES = [
@@ -17,68 +17,20 @@ const TIME_RANGES = [
 ];
 
 export default function ThoughtsPage() {
-	const { thoughts, setThoughts, isLoading, setIsLoading, searchQuery, setSearchQuery, filters, setFilters } =
-		useThoughtsStore();
-	const [searchResults, setSearchResults] = useState<(Thought & { similarity?: number })[]>([]);
-	const [isSearching, setIsSearching] = useState(false);
-
-	const fetchThoughts = useCallback(async () => {
-		setIsLoading(true);
-		const params = new URLSearchParams({ limit: "100" });
-		if (filters.type) params.set("type", filters.type);
-		if (filters.topic) params.set("topic", filters.topic);
-		if (filters.person) params.set("person", filters.person);
-		if (filters.days) params.set("days", String(filters.days));
-		if (filters.status) params.set("status", filters.status);
-		if (filters.category) params.set("category", filters.category);
-		if (filters.priority) params.set("priority", String(filters.priority));
-		if (filters.overdue) params.set("overdue", "true");
-		if (filters.order_by) params.set("order_by", filters.order_by);
-
-		try {
-			const res = await fetch(`/api/thoughts?${params}`);
-			const data = await res.json();
-			setThoughts(Array.isArray(data) ? data : []);
-		} catch {
-			setThoughts([]);
-		}
-		setIsLoading(false);
-	}, [filters, setThoughts, setIsLoading]);
+	const { thoughts, isLoading, filters, setFilters, refresh } = useThoughtList();
+	const { query, setQuery, results: searchResults, isSearching, search } = useSearch();
 
 	useEffect(() => {
-		if (!searchQuery) fetchThoughts();
-	}, [fetchThoughts, searchQuery]);
+		if (!query) refresh();
+	}, [refresh, query]);
 
-	const handleSearch = async () => {
-		if (!searchQuery.trim()) {
-			setSearchResults([]);
-			return;
-		}
-		setIsSearching(true);
-		const data = await fetch("/api/search", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ query: searchQuery, limit: 30 }),
-		}).then((r) => r.json());
-		setSearchResults(data);
-		setIsSearching(false);
-	};
-
-	const displayThoughts = searchQuery ? searchResults : thoughts;
+	const displayThoughts = query ? searchResults : thoughts;
 
 	return (
 		<div className="p-8 max-w-[1000px]">
-			<motion.div
-				initial={{ opacity: 0, y: -8 }}
-				animate={{ opacity: 1, y: 0 }}
-				className="mb-8"
-			>
-				<h1 className="font-display text-4xl text-text-primary mb-1">
-					Thoughts
-				</h1>
-				<p className="text-text-secondary text-sm">
-					{thoughts.length} captured
-				</p>
+			<motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
+				<h1 className="font-display text-4xl text-text-primary mb-1">Thoughts</h1>
+				<p className="text-text-secondary text-sm">{thoughts.length} captured</p>
 			</motion.div>
 
 			{/* Search */}
@@ -91,14 +43,14 @@ export default function ThoughtsPage() {
 				<form
 					onSubmit={(e) => {
 						e.preventDefault();
-						handleSearch();
+						search();
 					}}
 					className="relative"
 				>
 					<input
 						type="text"
-						value={searchQuery}
-						onChange={(e) => setSearchQuery(e.target.value)}
+						value={query}
+						onChange={(e) => setQuery(e.target.value)}
 						placeholder="Search by meaning..."
 						aria-label="Semantic search"
 						className="w-full bg-surface-2 border border-border-subtle rounded-[var(--radius-md)] px-4 py-3 pl-10 text-sm text-text-primary placeholder:text-text-tertiary focus:border-border-active focus:outline-none transition-colors"
@@ -126,7 +78,7 @@ export default function ThoughtsPage() {
 			</motion.div>
 
 			{/* Filters */}
-			{!searchQuery && (
+			{!query && (
 				<motion.div
 					initial={{ opacity: 0 }}
 					animate={{ opacity: 1 }}
@@ -145,9 +97,7 @@ export default function ThoughtsPage() {
 							<button
 								key={s.label}
 								type="button"
-								onClick={() =>
-									setFilters({ ...filters, status: s.value })
-								}
+								onClick={() => setFilters({ ...filters, status: s.value })}
 								className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
 									filters.status === s.value
 										? "bg-amber-glow/15 text-amber-bright border border-border-active"
@@ -207,9 +157,7 @@ export default function ThoughtsPage() {
 							<button
 								key={range.label}
 								type="button"
-								onClick={() =>
-									setFilters({ ...filters, days: range.value })
-								}
+								onClick={() => setFilters({ ...filters, days: range.value })}
 								className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
 									filters.days === range.value
 										? "bg-amber-glow/15 text-amber-bright border border-border-active"
@@ -271,9 +219,7 @@ export default function ThoughtsPage() {
 										</div>
 									</div>
 									<div className="flex items-center gap-2 flex-wrap">
-										{thought.metadata?.type && (
-											<TypeTag type={thought.metadata.type} />
-										)}
+										{thought.metadata?.type && <TypeTag type={thought.metadata.type} />}
 										{thought.metadata?.status && (
 											<span
 												className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
@@ -301,12 +247,14 @@ export default function ThoughtsPage() {
 										{thought.due_at && (
 											<span
 												className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
-													new Date(thought.due_at) < new Date() && thought.metadata?.status !== "resolved"
+													new Date(thought.due_at) < new Date() &&
+													thought.metadata?.status !== "resolved"
 														? "text-danger bg-danger/10"
 														: "text-text-secondary bg-surface-3"
 												}`}
 											>
-												{new Date(thought.due_at) < new Date() && thought.metadata?.status !== "resolved"
+												{new Date(thought.due_at) < new Date() &&
+												thought.metadata?.status !== "resolved"
 													? "overdue"
 													: `due ${DateTime.fromISO(thought.due_at).toRelative()}`}
 											</span>
@@ -322,16 +270,17 @@ export default function ThoughtsPage() {
 											</span>
 										)}
 										{thought.metadata?.topics?.slice(0, 4).map((t) => (
-											<span
-												key={t}
-												className="text-[10px] font-mono text-text-tertiary"
-											>
+											<span key={t} className="text-[10px] font-mono text-text-tertiary">
 												#{t}
 											</span>
 										))}
 										{thought.metadata?.people?.length ? (
 											<span className="text-[10px] text-text-tertiary ml-auto">
-												{thought.metadata.people.map((p: unknown) => typeof p === "string" ? p : (p as Record<string, unknown>)?.name || "").join(", ")}
+												{thought.metadata.people
+													.map((p: unknown) =>
+														typeof p === "string" ? p : (p as Record<string, unknown>)?.name || "",
+													)
+													.join(", ")}
 											</span>
 										) : null}
 									</div>
@@ -342,7 +291,7 @@ export default function ThoughtsPage() {
 					{displayThoughts.length === 0 && (
 						<div className="text-center py-20">
 							<p className="text-text-tertiary text-sm">
-								{searchQuery ? "No matching thoughts found." : "No thoughts captured yet."}
+								{query ? "No matching thoughts found." : "No thoughts captured yet."}
 							</p>
 						</div>
 					)}
