@@ -76,6 +76,10 @@ Extract metadata from the user's captured thought. Return JSON with:
     "procedural" — how-to knowledge, recipes, processes, setup guides, step-by-step instructions
 - "expires_at": ISO 8601 datetime if the thought is inherently time-limited and becomes irrelevant after a specific moment (e.g. "dentist appointment next Monday" → that Monday; "exam on Friday" → that Friday end-of-day; "meeting tomorrow at 3pm" → tomorrow 3pm). null if the thought retains value indefinitely (facts, preferences, procedures, general observations).
 - "event_at": ISO 8601 datetime of when the described event actually occurred or will occur, if different from right now. For past events ("last Tuesday I had lunch with Sarah" → last Tuesday), future events ("dentist next Monday" → next Monday), and specific dated references ("on March 15th we signed the contract" → that date). null if the thought describes the present moment or has no specific temporal anchor beyond now.
+- "relationship": if people are mentioned and their relationship to the user is inferable, return an object mapping each person's name to their role (e.g. {"Sarah": "colleague", "Dr. Chen": "dentist", "Mom": "family"}). null if no people or roles are clear.
+- "project": the name of a specific named project this thought belongs to, if clearly referenced (e.g. "Echo", "website redesign", "Q3 budget", "kitchen renovation"). null if no named project.
+- "organization": the name of a company or institution mentioned (e.g. "Anthropic", "Mayo Clinic", "Apple", "MIT"). null if none.
+- "sentiment": overall sentiment of the thought toward its subject — "positive", "negative", or "neutral". null if purely informational with no discernible sentiment.
 Only extract what's explicitly there. Do not infer or fabricate. Resolve relative dates using today's date.
 Return ONLY valid JSON, no markdown fences or extra text.`,
 				},
@@ -216,7 +220,7 @@ export function identifyTopicPage(
 	topics: string[],
 	existingPages: { slug: string; title: string; embedding: number[] }[],
 	thoughtEmbedding: number[],
-	CREATION_THRESHOLD: number = 3,
+	_CREATION_THRESHOLD: number = 3,
 ): { slug: string; title: string; isNew: boolean } | null {
 	if (!topics.length) return null;
 
@@ -284,7 +288,7 @@ export async function detectContradictions(
 		for (const topic of fact.topics) {
 			const key = topic.toLowerCase();
 			if (!clusters.has(key)) clusters.set(key, []);
-			clusters.get(key)!.push(fact);
+			clusters.get(key)?.push(fact);
 		}
 	}
 
@@ -298,9 +302,7 @@ export async function detectContradictions(
 		const unique = cluster.filter((f, i, arr) => arr.findIndex((x) => x.id === f.id) === i);
 		if (unique.length < 2) continue;
 
-		const factsText = unique
-			.map((f, i) => `[${i + 1}] (ID: ${f.id}) ${f.content}`)
-			.join("\n\n");
+		const factsText = unique.map((f, i) => `[${i + 1}] (ID: ${f.id}) ${f.content}`).join("\n\n");
 
 		try {
 			const r = await fetch(`${AI_GATEWAY_BASE}/chat/completions`, {

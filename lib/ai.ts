@@ -18,6 +18,10 @@ Extract metadata from the user's captured thought. Return JSON with:
 - "due_at": if a single clear due/deadline date is mentioned, return it as ISO 8601 datetime (e.g. "2026-04-01T00:00:00Z"). null if no due date or if multiple distinct items have different due dates.
 - "recurrence": if a repeating schedule is described, return an object with "interval_days" (number) and/or "unit" ("day"|"week"|"month"). null if not recurring.
 - "priority": 0-4 (0=none, 1=low, 2=medium, 3=high, 4=urgent) based on urgency expressed. 0 if not expressed.
+- "relationship": if people are mentioned and their relationship to the user is inferable, return an object mapping each person's name to their role (e.g. {"Sarah": "colleague", "Dr. Chen": "dentist", "Mom": "family"}). null if no people or roles are clear.
+- "project": the name of a specific named project this thought belongs to, if clearly referenced (e.g. "Echo", "website redesign", "Q3 budget", "kitchen renovation"). null if no named project.
+- "organization": the name of a company or institution mentioned (e.g. "Anthropic", "Mayo Clinic", "Apple", "MIT"). null if none.
+- "sentiment": overall sentiment of the thought toward its subject — "positive", "negative", or "neutral". null if purely informational with no discernible sentiment.
 Only extract what's explicitly there. Do not infer or fabricate. Resolve relative dates using today's date.
 Return ONLY valid JSON, no markdown fences or extra text.`;
 }

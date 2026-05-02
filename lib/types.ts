@@ -26,6 +26,10 @@ export type ThoughtMetadata = {
 	last_completed?: string;
 	completion_count?: number;
 	memory_type?: MemoryType;
+	relationship?: Record<string, string>;
+	project?: string;
+	organization?: string;
+	sentiment?: "positive" | "negative" | "neutral";
 	[key: string]: unknown;
 };
 

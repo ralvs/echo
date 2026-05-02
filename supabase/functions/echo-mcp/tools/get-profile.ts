@@ -1,8 +1,6 @@
-import { type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-
-import { supabase } from "../config.ts";
-import { AI_GATEWAY_API_KEY, AI_GATEWAY_BASE } from "../config.ts";
+import { AI_GATEWAY_API_KEY, AI_GATEWAY_BASE, supabase } from "../config.ts";
 
 export function registerGetProfile(server: McpServer) {
 	server.registerTool(
@@ -26,9 +24,7 @@ export function registerGetProfile(server: McpServer) {
 				const { data: staticThoughts, error: staticErr } = await supabase
 					.from("thoughts")
 					.select("content, metadata")
-					.or(
-						"metadata->memory_type.eq.fact,metadata->memory_type.eq.preference",
-					)
+					.or("metadata->memory_type.eq.fact,metadata->memory_type.eq.preference")
 					.or("is_bundle.is.null,is_bundle.eq.false")
 					.order("created_at", { ascending: false })
 					.limit(100);
@@ -39,9 +35,7 @@ export function registerGetProfile(server: McpServer) {
 				const { data: dynamicThoughts, error: dynamicErr } = await supabase
 					.from("thoughts")
 					.select("content, metadata, due_at, priority")
-					.or(
-						"metadata->memory_type.eq.episodic,metadata->status.eq.open",
-					)
+					.or("metadata->memory_type.eq.episodic,metadata->status.eq.open")
 					.or("is_bundle.is.null,is_bundle.eq.false")
 					.order("created_at", { ascending: false })
 					.limit(50);
@@ -49,7 +43,18 @@ export function registerGetProfile(server: McpServer) {
 				if (dynamicErr) throw new Error(`Dynamic query failed: ${dynamicErr.message}`);
 
 				const staticBlock = (staticThoughts || [])
-					.map((t) => `- ${t.content}`)
+					.map((t) => {
+						const m = t.metadata || {};
+						let line = `- ${t.content}`;
+						if (m.organization) line += ` [org: ${m.organization}]`;
+						if (m.relationship && typeof m.relationship === "object") {
+							const rels = Object.entries(m.relationship as Record<string, string>)
+								.map(([name, role]) => `${name}=${role}`)
+								.join(", ");
+							if (rels) line += ` [relationships: ${rels}]`;
+						}
+						return line;
+					})
 					.join("\n");
 				const dynamicBlock = (dynamicThoughts || [])
 					.map((t) => {
@@ -58,6 +63,15 @@ export function registerGetProfile(server: McpServer) {
 						if (m.status) tags.push(`[${m.status}]`);
 						if (t.due_at) tags.push(`due:${t.due_at}`);
 						if (t.priority && t.priority > 0) tags.push(`P${t.priority}`);
+						if (m.project) tags.push(`project:${m.project}`);
+						if (m.organization) tags.push(`org:${m.organization}`);
+						if (m.sentiment) tags.push(`sentiment:${m.sentiment}`);
+						if (m.relationship && typeof m.relationship === "object") {
+							const rels = Object.entries(m.relationship as Record<string, string>)
+								.map(([name, role]) => `${name}=${role}`)
+								.join(", ");
+							if (rels) tags.push(`rels:${rels}`);
+						}
 						const suffix = tags.length ? ` (${tags.join(", ")})` : "";
 						return `- ${t.content}${suffix}`;
 					})
@@ -101,13 +115,15 @@ Return JSON with this structure:
   "static": {
     "facts": ["..."],
     "preferences": ["..."],
-    "people": ["..."]
+    "contact_graph": [{"name": "...", "role": "..."}],
+    "organizations": ["..."]
   },
   "dynamic": {
     "active_projects": ["..."],
     "upcoming_events": ["..."],
     "recent_topics": ["..."],
-    "open_tasks": ["..."]
+    "open_tasks": ["..."],
+    "sentiment_patterns": ["..."]
   },
   "summary": "A 2-3 sentence natural language summary of who this person is and what they're currently focused on."
 }
@@ -115,6 +131,10 @@ Return JSON with this structure:
 Rules:
 - Only include information explicitly present in the thoughts
 - Keep each array entry concise (one sentence max)
+- contact_graph: build from [relationships: ...] tags — each unique person with their role
+- organizations: unique company/institution names from [org: ...] tags
+- active_projects: use [project: ...] tags as primary signal, supplement with free-text inference
+- sentiment_patterns: note any recurring emotional patterns (e.g. "consistently negative about X", "positive about Y")
 - Empty arrays are fine if no relevant data exists
 ${focus ? `- Emphasize information related to: ${focus}` : ""}
 Return ONLY valid JSON.`,
@@ -148,11 +168,17 @@ Return ONLY valid JSON.`,
 				if (s.facts?.length)
 					parts.push(`## Facts\n${s.facts.map((f: string) => `• ${f}`).join("\n")}`);
 				if (s.preferences?.length)
+					parts.push(`## Preferences\n${s.preferences.map((p: string) => `• ${p}`).join("\n")}`);
+				if (s.contact_graph?.length) {
+					const contacts = (s.contact_graph as { name: string; role: string }[])
+						.map((c) => `• ${c.name} — ${c.role}`)
+						.join("\n");
+					parts.push(`## People\n${contacts}`);
+				}
+				if (s.organizations?.length)
 					parts.push(
-						`## Preferences\n${s.preferences.map((p: string) => `• ${p}`).join("\n")}`,
+						`## Organizations\n${s.organizations.map((o: string) => `• ${o}`).join("\n")}`,
 					);
-				if (s.people?.length)
-					parts.push(`## People\n${s.people.map((p: string) => `• ${p}`).join("\n")}`);
 
 				const dy = profile.dynamic || {};
 				if (dy.active_projects?.length)
@@ -168,8 +194,10 @@ Return ONLY valid JSON.`,
 						`## Recent Topics\n${dy.recent_topics.map((t: string) => `• ${t}`).join("\n")}`,
 					);
 				if (dy.open_tasks?.length)
+					parts.push(`## Open Tasks\n${dy.open_tasks.map((t: string) => `• ${t}`).join("\n")}`);
+				if (dy.sentiment_patterns?.length)
 					parts.push(
-						`## Open Tasks\n${dy.open_tasks.map((t: string) => `• ${t}`).join("\n")}`,
+						`## Sentiment Patterns\n${dy.sentiment_patterns.map((p: string) => `• ${p}`).join("\n")}`,
 					);
 
 				return {
