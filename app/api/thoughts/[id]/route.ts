@@ -38,13 +38,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 		embedding: current.embedding,
 		metadata: current.metadata,
 		created_at: current.created_at,
+		archived_at: new Date().toISOString(),
 	});
 
 	const newVersion = (current.version || 1) + 1;
 
 	const updateRow: Record<string, unknown> = {
 		content: body.content,
-		metadata: body.metadata || current.metadata,
+		metadata: body.metadata ? { ...current.metadata, ...body.metadata } : current.metadata,
 		version: newVersion,
 		updated_at: new Date().toISOString(),
 	};

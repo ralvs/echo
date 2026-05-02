@@ -79,6 +79,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 			embedding: current.embedding,
 			metadata: current.metadata,
 			created_at: current.created_at,
+			archived_at: new Date().toISOString(),
 		});
 
 		// Calculate next due
