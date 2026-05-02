@@ -3,11 +3,7 @@ import { applyDecay } from "./search-assembly";
 
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 
-function makeResult(
-	memoryType: string,
-	ageMonths: number,
-	similarity = 1.0,
-) {
+function makeResult(memoryType: string, ageMonths: number, similarity = 1.0) {
 	return {
 		id: crypto.randomUUID(),
 		content: "test",

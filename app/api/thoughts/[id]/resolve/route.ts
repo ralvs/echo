@@ -1,7 +1,7 @@
-import { createServiceClient } from "@/lib/supabase";
+import { type NextRequest, NextResponse } from "next/server";
 import { advanceRecurrence } from "@/lib/recurrence";
+import { createServiceClient } from "@/lib/supabase";
 import type { RecurrenceRule } from "@/lib/types";
-import { NextRequest, NextResponse } from "next/server";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
@@ -37,7 +37,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 				.from("thoughts")
 				.update({ metadata, updated_at: new Date().toISOString() })
 				.eq("id", id)
-				.select("id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at")
+				.select(
+					"id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at",
+				)
 				.single();
 
 			if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -78,7 +80,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 				updated_at: new Date().toISOString(),
 			})
 			.eq("id", id)
-			.select("id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at")
+			.select(
+				"id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at",
+			)
 			.single();
 
 		if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -96,7 +100,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 		.from("thoughts")
 		.update({ metadata, updated_at: new Date().toISOString() })
 		.eq("id", id)
-		.select("id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at")
+		.select(
+			"id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at",
+		)
 		.single();
 
 	if (error) return NextResponse.json({ error: error.message }, { status: 500 });

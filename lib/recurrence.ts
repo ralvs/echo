@@ -6,11 +6,7 @@ import type { RecurrenceRule } from "./types";
  *
  * Invariant: result is always in the future relative to `now`.
  */
-export function advanceRecurrence(
-	currentDue: Date | null,
-	rule: RecurrenceRule,
-	now: Date,
-): Date {
+export function advanceRecurrence(currentDue: Date | null, rule: RecurrenceRule, now: Date): Date {
 	const base = new Date(Math.max((currentDue ?? now).getTime(), now.getTime()));
 
 	if (rule.unit === "month") {

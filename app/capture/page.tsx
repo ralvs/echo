@@ -7,13 +7,13 @@ import { useCapture } from "@/lib/hooks/use-capture";
 export default function CapturePage() {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const [content, setContent] = useState("");
-	const { saving, result, capture, clearResult } = useCapture();
+	const { saving, result, error, capture, clearResult } = useCapture();
 
 	useEffect(() => {
 		textareaRef.current?.focus();
 	}, []);
 
-	// Auto-resize textarea
+	// biome-ignore lint/correctness/useExhaustiveDependencies: content triggers the resize even though it isn't read directly
 	useEffect(() => {
 		const el = textareaRef.current;
 		if (!el) return;
@@ -22,14 +22,13 @@ export default function CapturePage() {
 	}, [content]);
 
 	const handleCapture = async () => {
-		const captured = await capture(content);
-		if (captured) {
-			setTimeout(() => {
-				setContent("");
-				clearResult();
-				textareaRef.current?.focus();
-			}, 3000);
-		}
+		await capture(content);
+	};
+
+	const handleDismiss = () => {
+		setContent("");
+		clearResult();
+		textareaRef.current?.focus();
 	};
 
 	const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -112,6 +111,40 @@ export default function CapturePage() {
 					</span>
 				</div>
 
+				{/* Error feedback */}
+				<AnimatePresence>
+					{error && (
+						<motion.div
+							initial={{ opacity: 0, y: 8 }}
+							animate={{ opacity: 1, y: 0 }}
+							exit={{ opacity: 0, y: -4 }}
+							className="bg-danger/8 border border-danger/30 rounded-[var(--radius-md)] p-4 flex items-center justify-between gap-3"
+						>
+							<span className="text-sm text-danger">{error.message}</span>
+							<button
+								type="button"
+								onClick={clearResult}
+								className="text-danger/60 hover:text-danger transition-colors shrink-0"
+								aria-label="Dismiss error"
+							>
+								<svg
+									aria-hidden="true"
+									width="14"
+									height="14"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								>
+									<path d="M18 6L6 18M6 6l12 12" />
+								</svg>
+							</button>
+						</motion.div>
+					)}
+				</AnimatePresence>
+
 				{/* Result feedback */}
 				<AnimatePresence>
 					{result && (
@@ -121,22 +154,47 @@ export default function CapturePage() {
 							exit={{ opacity: 0, y: -4 }}
 							className="bg-surface-2 border border-border-subtle rounded-[var(--radius-md)] p-4 space-y-3"
 						>
-							<div className="flex items-center gap-2">
-								<svg
-									width="16"
-									height="16"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-									className="text-success"
+							<div className="flex items-center justify-between gap-2">
+								<div className="flex items-center gap-2">
+									<svg
+										aria-hidden="true"
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										className="text-success"
+									>
+										<path d="M20 6L9 17l-5-5" />
+									</svg>
+									<span className="text-sm text-text-primary font-medium">Captured</span>
+									{type && (
+										<span className={`type-tag type-${type}`}>{type.replace(/_/g, " ")}</span>
+									)}
+								</div>
+								<button
+									type="button"
+									onClick={handleDismiss}
+									className="text-text-tertiary hover:text-text-primary transition-colors shrink-0"
+									aria-label="Dismiss and capture another"
 								>
-									<path d="M20 6L9 17l-5-5" />
-								</svg>
-								<span className="text-sm text-text-primary font-medium">Captured</span>
-								{type && <span className={`type-tag type-${type}`}>{type.replace(/_/g, " ")}</span>}
+									<svg
+										aria-hidden="true"
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+									>
+										<path d="M18 6L6 18M6 6l12 12" />
+									</svg>
+								</button>
 							</div>
 
 							{/* Extracted metadata summary */}
@@ -177,8 +235,8 @@ export default function CapturePage() {
 							{/* Action items */}
 							{actionItems && actionItems.length > 0 && (
 								<div className="text-[12px] text-text-secondary space-y-0.5">
-									{actionItems.map((item, i) => (
-										<div key={i} className="flex items-start gap-1.5">
+									{actionItems.map((item) => (
+										<div key={item} className="flex items-start gap-1.5">
 											<span className="text-text-tertiary mt-px">→</span>
 											<span>{item}</span>
 										</div>

@@ -1,5 +1,7 @@
 import { generateText } from "ai";
+
 export { getEmbedding } from "./embeddings";
+
 import { z } from "zod";
 
 const ExtractionSchema = z.object({

@@ -14,9 +14,7 @@ export type CaptureInput = {
 	metadata?: Partial<ThoughtMetadata>;
 };
 
-export type CaptureOutput =
-	| { skipped: "duplicate"; id: string; source_id: string }
-	| Thought;
+export type CaptureOutput = { skipped: "duplicate"; id: string; source_id: string } | Thought;
 
 const THOUGHT_COLUMNS =
 	"id, content, metadata, version, due_at, recurrence, priority, category, source_id, source_kind, created_at, updated_at";

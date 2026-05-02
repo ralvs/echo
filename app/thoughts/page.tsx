@@ -38,7 +38,7 @@ export default function ThoughtsPage() {
 				initial={{ opacity: 0, y: 8 }}
 				animate={{ opacity: 1, y: 0 }}
 				transition={{ delay: 0.05 }}
-				className="mb-6"
+				className="mb-4"
 			>
 				<form
 					onSubmit={(e) => {
@@ -56,6 +56,7 @@ export default function ThoughtsPage() {
 						className="w-full bg-surface-2 border border-border-subtle rounded-[var(--radius-md)] px-4 py-3 pl-10 text-sm text-text-primary placeholder:text-text-tertiary focus:border-border-active focus:outline-none transition-colors"
 					/>
 					<svg
+						aria-hidden="true"
 						className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-tertiary"
 						width="16"
 						height="16"
@@ -76,6 +77,26 @@ export default function ThoughtsPage() {
 					)}
 				</form>
 			</motion.div>
+
+			{/* Search active notice */}
+			{query && (
+				<motion.div
+					initial={{ opacity: 0 }}
+					animate={{ opacity: 1 }}
+					className="mb-4 flex items-center justify-between"
+				>
+					<span className="text-xs text-text-tertiary font-mono">
+						Filters paused — showing semantic results for &ldquo;{query}&rdquo;
+					</span>
+					<button
+						type="button"
+						onClick={() => setQuery("")}
+						className="text-xs text-text-tertiary hover:text-text-primary transition-colors underline"
+					>
+						Clear search
+					</button>
+				</motion.div>
+			)}
 
 			{/* Filters */}
 			{!query && (

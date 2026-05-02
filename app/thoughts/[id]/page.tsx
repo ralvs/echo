@@ -1,18 +1,14 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "motion/react";
 import { DateTime } from "luxon";
-import { TypeTag } from "@/components/type-tag";
+import { AnimatePresence, motion } from "motion/react";
+import { useRouter } from "next/navigation";
+import { use, useEffect, useState } from "react";
 import { TopicPill } from "@/components/topic-pill";
+import { TypeTag } from "@/components/type-tag";
 import type { Thought, ThoughtVersion } from "@/lib/types";
 
-export default function ThoughtDetailPage({
-	params,
-}: {
-	params: Promise<{ id: string }>;
-}) {
+export default function ThoughtDetailPage({ params }: { params: Promise<{ id: string }> }) {
 	const { id } = use(params);
 	const router = useRouter();
 	const [thought, setThought] = useState<Thought | null>(null);
@@ -30,9 +26,7 @@ export default function ThoughtDetailPage({
 	}, [id]);
 
 	const loadVersions = async () => {
-		const data = await fetch(`/api/thoughts/${id}/versions`).then((r) =>
-			r.json(),
-		);
+		const data = await fetch(`/api/thoughts/${id}/versions`).then((r) => r.json());
 		setVersions(data);
 		setShowVersions(true);
 	};
@@ -86,17 +80,14 @@ export default function ThoughtDetailPage({
 	return (
 		<div className="p-8 max-w-[800px]">
 			{/* Back nav */}
-			<motion.div
-				initial={{ opacity: 0, x: -8 }}
-				animate={{ opacity: 1, x: 0 }}
-				className="mb-6"
-			>
+			<motion.div initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className="mb-6">
 				<button
 					type="button"
 					onClick={() => router.back()}
 					className="flex items-center gap-1.5 text-text-secondary hover:text-text-primary text-sm transition-colors"
 				>
 					<svg
+						aria-hidden="true"
 						width="14"
 						height="14"
 						viewBox="0 0 24 24"
@@ -122,9 +113,7 @@ export default function ThoughtDetailPage({
 			>
 				<div>
 					<div className="flex items-center gap-3 mb-2 flex-wrap">
-						{thought.metadata?.type && (
-							<TypeTag type={thought.metadata.type} />
-						)}
+						{thought.metadata?.type && <TypeTag type={thought.metadata.type} />}
 						{thought.metadata?.status && (
 							<span
 								className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${
@@ -155,7 +144,10 @@ export default function ThoughtDetailPage({
 							</span>
 						)}
 						{thought.recurrence && (
-							<span className="text-[10px] font-mono text-text-secondary bg-surface-3 px-2 py-0.5 rounded-full border border-border-subtle" title="Recurring">
+							<span
+								className="text-[10px] font-mono text-text-secondary bg-surface-3 px-2 py-0.5 rounded-full border border-border-subtle"
+								title="Recurring"
+							>
 								↻ recurring
 							</span>
 						)}
@@ -166,15 +158,9 @@ export default function ThoughtDetailPage({
 						)}
 					</div>
 					<p className="text-xs font-mono text-text-tertiary">
-						{DateTime.fromISO(thought.created_at).toFormat(
-							"EEEE, LLL d yyyy · h:mm a",
-						)}
+						{DateTime.fromISO(thought.created_at).toFormat("EEEE, LLL d yyyy · h:mm a")}
 						{thought.updated_at !== thought.created_at && (
-							<>
-								{" "}
-								· edited{" "}
-								{DateTime.fromISO(thought.updated_at).toRelative()}
-							</>
+							<> · edited {DateTime.fromISO(thought.updated_at).toRelative()}</>
 						)}
 					</p>
 				</div>
@@ -292,12 +278,12 @@ export default function ThoughtDetailPage({
 						</h3>
 						<div className="flex flex-wrap gap-1.5">
 							{thought.metadata.people.map((p: unknown) => {
-								const name = typeof p === "string" ? p : (p as Record<string, unknown>)?.name as string || "";
+								const name =
+									typeof p === "string"
+										? p
+										: ((p as Record<string, unknown>)?.name as string) || "";
 								return (
-									<span
-										key={name}
-										className="text-sm text-text-primary"
-									>
+									<span key={name} className="text-sm text-text-primary">
 										{name}
 									</span>
 								);
@@ -312,13 +298,8 @@ export default function ThoughtDetailPage({
 						</h3>
 						<ul className="space-y-1.5">
 							{thought.metadata.action_items.map((item) => (
-								<li
-									key={item}
-									className="flex items-start gap-2 text-sm text-text-secondary"
-								>
-									<span className="text-amber-dim mt-0.5">
-										&bull;
-									</span>
+								<li key={item} className="flex items-start gap-2 text-sm text-text-secondary">
+									<span className="text-amber-dim mt-0.5">&bull;</span>
 									{item}
 								</li>
 							))}
@@ -349,8 +330,7 @@ export default function ThoughtDetailPage({
 											: "text-text-primary"
 									}
 								>
-									{DateTime.fromISO(thought.due_at).toFormat("LLL d, yyyy")}
-									{" "}
+									{DateTime.fromISO(thought.due_at).toFormat("LLL d, yyyy")}{" "}
 									<span className="text-text-tertiary text-xs">
 										({DateTime.fromISO(thought.due_at).toRelative()})
 									</span>
@@ -387,12 +367,15 @@ export default function ThoughtDetailPage({
 								</span>
 							</div>
 						)}
-						{thought.metadata?.completion_count != null && (thought.metadata.completion_count as number) > 0 && (
-							<div>
-								<span className="text-text-tertiary text-xs">Completions: </span>
-								<span className="text-text-primary">{thought.metadata.completion_count as number}</span>
-							</div>
-						)}
+						{thought.metadata?.completion_count != null &&
+							(thought.metadata.completion_count as number) > 0 && (
+								<div>
+									<span className="text-text-tertiary text-xs">Completions: </span>
+									<span className="text-text-primary">
+										{thought.metadata.completion_count as number}
+									</span>
+								</div>
+							)}
 						{thought.metadata?.last_completed && (
 							<div>
 								<span className="text-text-tertiary text-xs">Last completed: </span>
@@ -406,9 +389,7 @@ export default function ThoughtDetailPage({
 			)}
 
 			{/* ID for reference */}
-			<div className="text-[10px] font-mono text-text-tertiary">
-				ID: {thought.id}
-			</div>
+			<div className="text-[10px] font-mono text-text-tertiary">ID: {thought.id}</div>
 
 			{/* Version history panel */}
 			<AnimatePresence>
@@ -428,9 +409,7 @@ export default function ThoughtDetailPage({
 							className="bg-surface-1 border border-border-subtle rounded-[var(--radius-lg)] p-6 max-w-[600px] w-full max-h-[80vh] overflow-y-auto"
 						>
 							<div className="flex items-center justify-between mb-5">
-								<h2 className="font-display text-xl text-text-primary">
-									Version History
-								</h2>
+								<h2 className="font-display text-xl text-text-primary">Version History</h2>
 								<button
 									type="button"
 									onClick={() => setShowVersions(false)}
@@ -438,6 +417,7 @@ export default function ThoughtDetailPage({
 									aria-label="Close version history"
 								>
 									<svg
+										aria-hidden="true"
 										width="18"
 										height="18"
 										viewBox="0 0 24 24"
@@ -457,14 +437,10 @@ export default function ThoughtDetailPage({
 										v{thought.version} (current)
 									</span>
 									<span className="text-[10px] font-mono text-text-tertiary">
-										{DateTime.fromISO(
-											thought.updated_at,
-										).toRelative()}
+										{DateTime.fromISO(thought.updated_at).toRelative()}
 									</span>
 								</div>
-								<p className="text-sm text-text-primary line-clamp-3">
-									{thought.content}
-								</p>
+								<p className="text-sm text-text-primary line-clamp-3">{thought.content}</p>
 							</div>
 
 							{/* Historical versions */}
@@ -475,19 +451,12 @@ export default function ThoughtDetailPage({
 										className="p-4 bg-surface-2 border border-border-subtle rounded-[var(--radius-sm)]"
 									>
 										<div className="flex items-center justify-between mb-2">
-											<span className="text-xs font-mono text-text-secondary">
-												v{v.version}
-											</span>
+											<span className="text-xs font-mono text-text-secondary">v{v.version}</span>
 											<span className="text-[10px] font-mono text-text-tertiary">
-												archived{" "}
-												{DateTime.fromISO(
-													v.archived_at,
-												).toRelative()}
+												archived {DateTime.fromISO(v.archived_at).toRelative()}
 											</span>
 										</div>
-										<p className="text-sm text-text-secondary line-clamp-3">
-											{v.content}
-										</p>
+										<p className="text-sm text-text-secondary line-clamp-3">{v.content}</p>
 									</div>
 								))}
 								{versions.length === 0 && (
@@ -518,12 +487,10 @@ export default function ThoughtDetailPage({
 							onClick={(e) => e.stopPropagation()}
 							className="bg-surface-1 border border-border-subtle rounded-[var(--radius-lg)] p-6 max-w-[400px] w-full"
 						>
-							<h2 className="font-display text-xl text-text-primary mb-2">
-								Delete thought?
-							</h2>
+							<h2 className="font-display text-xl text-text-primary mb-2">Delete thought?</h2>
 							<p className="text-sm text-text-secondary mb-5">
-								This will permanently delete this thought and all
-								its version history. This cannot be undone.
+								This will permanently delete this thought and all its version history. This cannot
+								be undone.
 							</p>
 							<div className="flex justify-end gap-2">
 								<button

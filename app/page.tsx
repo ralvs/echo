@@ -1,16 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { motion } from "motion/react";
 import { DateTime } from "luxon";
+import { motion } from "motion/react";
+import { useEffect, useState } from "react";
 import { StatCard } from "@/components/stat-card";
 import { TopicPill } from "@/components/topic-pill";
-import type { ThoughtStats, Thought } from "@/lib/types";
+import type { Thought, ThoughtStats } from "@/lib/types";
+
+const RECENT_THOUGHTS_LIMIT = 5;
+const MAX_DASHBOARD_ENTRIES = 12;
 
 function sortEntries(obj: Record<string, number>) {
 	return Object.entries(obj)
 		.sort((a, b) => b[1] - a[1])
-		.slice(0, 12);
+		.slice(0, MAX_DASHBOARD_ENTRIES);
 }
 
 export default function DashboardPage() {
@@ -20,8 +23,12 @@ export default function DashboardPage() {
 
 	useEffect(() => {
 		Promise.all([
-			fetch("/api/stats").then((r) => r.json()).catch(() => ({ total: 0, dateRange: null, types: {}, topics: {}, people: {} })),
-			fetch("/api/thoughts?limit=5").then((r) => r.json()).catch(() => []),
+			fetch("/api/stats")
+				.then((r) => r.json())
+				.catch(() => ({ total: 0, dateRange: null, types: {}, topics: {}, people: {} })),
+			fetch(`/api/thoughts?limit=${RECENT_THOUGHTS_LIMIT}`)
+				.then((r) => r.json())
+				.catch(() => []),
 		]).then(([statsData, recentData]) => {
 			setStats(statsData);
 			setRecent(Array.isArray(recentData) ? recentData : []);
@@ -49,9 +56,7 @@ export default function DashboardPage() {
 				transition={{ duration: 0.6 }}
 				className="mb-10"
 			>
-				<h1 className="font-display text-4xl text-text-primary mb-1">
-					Your Brain
-				</h1>
+				<h1 className="font-display text-4xl text-text-primary mb-1">Your Brain</h1>
 				<p className="text-text-secondary text-sm">{dateRange}</p>
 			</motion.div>
 
@@ -98,9 +103,7 @@ export default function DashboardPage() {
 										<span className="text-sm text-text-primary capitalize">
 											{type.replace(/_/g, " ")}
 										</span>
-										<span className="text-xs font-mono text-text-tertiary">
-											{count}
-										</span>
+										<span className="text-xs font-mono text-text-tertiary">{count}</span>
 									</div>
 									<div className="h-1 bg-surface-3 rounded-full overflow-hidden">
 										<motion.div
@@ -191,10 +194,7 @@ export default function DashboardPage() {
 									</span>
 								)}
 								{thought.metadata?.topics?.slice(0, 3).map((t) => (
-									<span
-										key={t}
-										className="text-[10px] font-mono text-text-tertiary"
-									>
+									<span key={t} className="text-[10px] font-mono text-text-tertiary">
 										#{t}
 									</span>
 								))}

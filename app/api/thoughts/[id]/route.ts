@@ -1,5 +1,5 @@
+import { type NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
-import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
 	const { id } = await params;
@@ -7,7 +7,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 
 	const { data, error } = await supabase
 		.from("thoughts")
-		.select("id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at")
+		.select(
+			"id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at",
+		)
 		.eq("id", id)
 		.single();
 
@@ -58,7 +60,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 		.from("thoughts")
 		.update(updateRow)
 		.eq("id", id)
-		.select("id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at")
+		.select(
+			"id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at",
+		)
 		.single();
 
 	if (error) return NextResponse.json({ error: error.message }, { status: 500 });

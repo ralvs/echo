@@ -27,7 +27,11 @@ describe("advanceRecurrence", () => {
 	});
 
 	it("pins to day_of_month when advancing monthly", () => {
-		const result = advanceRecurrence(now, { unit: "month", interval_days: 1, day_of_month: 5 }, now);
+		const result = advanceRecurrence(
+			now,
+			{ unit: "month", interval_days: 1, day_of_month: 5 },
+			now,
+		);
 		expect(result.getDate()).toBe(5);
 		expect(result.getMonth()).toBe(1); // February
 	});
