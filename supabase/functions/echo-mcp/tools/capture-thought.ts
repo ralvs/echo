@@ -1,9 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { classifyRelation, decomposeWithLLM, getEmbedding } from "../ai.ts";
+import { runPostCapturePipeline } from "../capture-pipeline.ts";
 import { DECOMPOSE_ENABLED, PRIORITY_LABELS, supabase } from "../config.ts";
-import { saveSingleThought, shouldDecompose } from "../decompose.ts";
-import { updateTopicPagesForThought } from "../topic-pages.ts";
+import { decompose, saveSingleThought } from "../decompose.ts";
 
 async function insertSourceRelations(thoughtId: string, sourceIds: string[]): Promise<void> {
 	for (const sourceId of sourceIds) {
@@ -17,73 +16,6 @@ async function insertSourceRelations(thoughtId: string, sourceIds: string[]): Pr
 			},
 			{ onConflict: "source_id,target_id,relation_type" },
 		);
-	}
-}
-
-async function detectRelations(
-	thoughtId: string,
-	content: string,
-	parentId?: string,
-): Promise<string[]> {
-	try {
-		const embedding = await getEmbedding(content);
-		const { data: matches } = await supabase.rpc("hybrid_search", {
-			query_text: content,
-			query_embedding: embedding,
-			match_threshold: 0.8,
-			match_count: 4,
-			alpha: 0.7,
-			filter: {},
-		});
-
-		if (!matches || matches.length === 0) return [];
-
-		const candidates = matches.filter(
-			(m: { id: string; parent_id?: string; is_bundle?: boolean }) =>
-				m.id !== thoughtId && !m.is_bundle && (!parentId || m.parent_id !== parentId),
-		);
-
-		const relationSummaries: string[] = [];
-
-		for (const candidate of candidates.slice(0, 3)) {
-			const result = await classifyRelation(content, candidate.content);
-			if (!result || result.relation === "unrelated") continue;
-
-			// Insert relation
-			await supabase.from("thought_relations").upsert(
-				{
-					source_id: thoughtId,
-					target_id: candidate.id,
-					relation_type: result.relation,
-					confidence: result.confidence,
-					is_latest: true,
-				},
-				{ onConflict: "source_id,target_id,relation_type" },
-			);
-
-			// If "updates", mark previous update relations to target as superseded
-			if (result.relation === "updates") {
-				await supabase
-					.from("thought_relations")
-					.update({ is_latest: false })
-					.eq("target_id", candidate.id)
-					.eq("relation_type", "updates")
-					.neq("source_id", thoughtId);
-			}
-
-			const preview =
-				candidate.content.length > 60
-					? candidate.content.substring(0, 60) + "..."
-					: candidate.content;
-			relationSummaries.push(
-				`${result.relation} "${preview}" (${(result.confidence * 100).toFixed(0)}%)`,
-			);
-		}
-
-		return relationSummaries;
-	} catch (err) {
-		console.error("Relation detection failed:", err);
-		return [];
 	}
 }
 
@@ -223,7 +155,11 @@ export function registerCaptureThought(server: McpServer) {
 					source_kind,
 				};
 
-				if (!shouldDecompose(text, DECOMPOSE_ENABLED)) {
+				// Decomposition policy: single interface hides heuristic + LLM fallback
+				const atomicThoughts = await decompose(text, DECOMPOSE_ENABLED);
+
+				if (!atomicThoughts) {
+					// Single thought path
 					const {
 						id,
 						metadata,
@@ -232,10 +168,21 @@ export function registerCaptureThought(server: McpServer) {
 						created_at,
 					} = await saveSingleThought(text, overrides);
 
+					if (source_ids?.length) await insertSourceRelations(id, source_ids);
+
+					const topics = Array.isArray(metadata.topics) ? (metadata.topics as string[]) : [];
+					const { relations } = await runPostCapturePipeline(
+						id,
+						text,
+						embedding,
+						created_at,
+						topics,
+						metadata.memory_type as string | undefined,
+					);
+
 					let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${id})`;
 					if (savedCategory) confirmation += ` [${savedCategory}]`;
-					if (Array.isArray(metadata.topics) && metadata.topics.length)
-						confirmation += ` — ${(metadata.topics as string[]).join(", ")}`;
+					if (topics.length) confirmation += ` — ${topics.join(", ")}`;
 					if (Array.isArray(metadata.people) && metadata.people.length)
 						confirmation += ` | People: ${(metadata.people as string[]).join(", ")}`;
 					if (Array.isArray(metadata.action_items) && metadata.action_items.length)
@@ -243,64 +190,12 @@ export function registerCaptureThought(server: McpServer) {
 					if (due_at) confirmation += ` | Due: ${new Date(due_at).toLocaleDateString()}`;
 					if (recurrence) confirmation += ` | Recurring`;
 					if (priority && priority > 0) confirmation += ` | Priority: ${PRIORITY_LABELS[priority]}`;
+					if (relations.length) confirmation += `\nRelations: ${relations.join("; ")}`;
 
-					if (source_ids?.length) await insertSourceRelations(id, source_ids);
-
-					// Detect relations in background (non-blocking for the response)
-					const relations = await detectRelations(id, text);
-					if (relations.length) {
-						confirmation += `\nRelations: ${relations.join("; ")}`;
-					}
-
-					// Update topic pages non-blocking
-					updateTopicPagesForThought(
-						id,
-						text,
-						embedding,
-						created_at,
-						Array.isArray(metadata.topics) ? (metadata.topics as string[]) : [],
-						metadata.memory_type as string | undefined,
-					).catch((e) => console.error("Topic page update error:", e));
-
-					return {
-						content: [{ type: "text" as const, text: confirmation }],
-					};
+					return { content: [{ type: "text" as const, text: confirmation }] };
 				}
 
-				// Attempt decomposition
-				const atomicThoughts = await decomposeWithLLM(text);
-
-				if (!atomicThoughts) {
-					const {
-						id,
-						metadata,
-						category: savedCategory,
-						embedding,
-						created_at,
-					} = await saveSingleThought(text, overrides);
-
-					let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${id})`;
-					if (savedCategory) confirmation += ` [${savedCategory}]`;
-					if (Array.isArray(metadata.topics) && metadata.topics.length)
-						confirmation += ` — ${(metadata.topics as string[]).join(", ")}`;
-
-					if (source_ids?.length) await insertSourceRelations(id, source_ids);
-
-					updateTopicPagesForThought(
-						id,
-						text,
-						embedding,
-						created_at,
-						Array.isArray(metadata.topics) ? (metadata.topics as string[]) : [],
-						metadata.memory_type as string | undefined,
-					).catch((e) => console.error("Topic page update error:", e));
-
-					return {
-						content: [{ type: "text" as const, text: confirmation }],
-					};
-				}
-
-				// Save parent bundle + atomic children
+				// Decomposed path: save parent bundle + atomic children
 				const parent = await saveSingleThought(text, {
 					...overrides,
 					type: overrides.type || "log",
@@ -309,6 +204,7 @@ export function registerCaptureThought(server: McpServer) {
 
 				const children: { id: string; topic: string }[] = [];
 				const allRelations: string[] = [];
+
 				for (const item of atomicThoughts) {
 					const child = await saveSingleThought(item.content, {
 						type: item.type,
@@ -320,17 +216,16 @@ export function registerCaptureThought(server: McpServer) {
 
 					if (source_ids?.length) await insertSourceRelations(child.id, source_ids);
 
-					const rels = await detectRelations(child.id, item.content, parent.id);
-					allRelations.push(...rels);
-
-					updateTopicPagesForThought(
+					const { relations } = await runPostCapturePipeline(
 						child.id,
 						item.content,
 						child.embedding,
 						child.created_at,
 						[item.topic],
 						child.metadata.memory_type as string | undefined,
-					).catch((e) => console.error("Topic page update error:", e));
+						parent.id,
+					);
+					allRelations.push(...relations);
 				}
 
 				const topicList = children.map((c) => c.topic).join(", ");
@@ -339,12 +234,7 @@ export function registerCaptureThought(server: McpServer) {
 					decomposedText += `\nRelations: ${allRelations.join("; ")}`;
 				}
 				return {
-					content: [
-						{
-							type: "text" as const,
-							text: decomposedText,
-						},
-					],
+					content: [{ type: "text" as const, text: decomposedText }],
 				};
 			} catch (err: unknown) {
 				return {
