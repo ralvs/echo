@@ -1,8 +1,9 @@
-import { createServiceClient } from "@/lib/supabase";
+import { type NextRequest, NextResponse } from "next/server";
 import { extractMetadata, getEmbedding } from "@/lib/ai";
-import { NextRequest, NextResponse } from "next/server";
+import { createServiceClient } from "@/lib/supabase";
 
-const THOUGHT_COLUMNS = "id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at";
+const THOUGHT_COLUMNS =
+	"id, content, metadata, version, due_at, recurrence, priority, category, source_id, source_kind, created_at, updated_at";
 
 export async function GET(req: NextRequest) {
 	const supabase = createServiceClient();
@@ -76,11 +77,26 @@ export async function POST(req: NextRequest) {
 		return NextResponse.json({ error: "Content is required" }, { status: 400 });
 	}
 
+	const sourceId = typeof body.source_id === "string" ? body.source_id : null;
+	const sourceKind = typeof body.source_kind === "string" ? body.source_kind : null;
+
+	// Idempotency check — if a row with this source_id already exists, short-circuit.
+	if (sourceId) {
+		const { data: existing } = await supabase
+			.from("thoughts")
+			.select("id")
+			.eq("source_id", sourceId)
+			.maybeSingle();
+		if (existing) {
+			return NextResponse.json(
+				{ skipped: "duplicate", id: existing.id, source_id: sourceId },
+				{ status: 200 },
+			);
+		}
+	}
+
 	// Run AI processing in parallel: embedding + metadata extraction
-	const [embedding, extracted] = await Promise.all([
-		getEmbedding(text),
-		extractMetadata(text),
-	]);
+	const [embedding, extracted] = await Promise.all([getEmbedding(text), extractMetadata(text)]);
 
 	// Separate real columns from metadata
 	const extractedCategory = extracted.category as string | null;
@@ -96,6 +112,7 @@ export async function POST(req: NextRequest) {
 	const metadata = { ...extracted, source: "echo" } as Record<string, unknown>;
 	if (body.metadata?.type) metadata.type = body.metadata.type;
 	if (body.metadata?.topics) metadata.topics = body.metadata.topics;
+	if (body.metadata?.memory_type) metadata.memory_type = body.metadata.memory_type;
 
 	// Auto-set status for actionable thoughts
 	const effectiveType = metadata.type as string;
@@ -116,7 +133,8 @@ export async function POST(req: NextRequest) {
 
 	// Real columns — caller overrides > extracted values
 	if (body.due_at || extractedDueAt) row.due_at = body.due_at || extractedDueAt;
-	if (body.recurrence || extractedRecurrence) row.recurrence = body.recurrence || extractedRecurrence;
+	if (body.recurrence || extractedRecurrence)
+		row.recurrence = body.recurrence || extractedRecurrence;
 	if (body.priority !== undefined) {
 		row.priority = body.priority;
 	} else if (extractedPriority && extractedPriority > 0) {
@@ -124,12 +142,30 @@ export async function POST(req: NextRequest) {
 	}
 	row.category = body.category || extractedCategory || null;
 
+	if (sourceId) row.source_id = sourceId;
+	if (sourceKind) row.source_kind = sourceKind;
+	if (typeof body.expires_at === "string") row.expires_at = body.expires_at;
+
 	const { data, error } = await supabase
 		.from("thoughts")
 		.insert(row)
 		.select(THOUGHT_COLUMNS)
 		.single();
 
-	if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+	if (error) {
+		// Postgres unique-violation code — race between idempotency check and insert.
+		if (error.code === "23505" && sourceId) {
+			const { data: existing } = await supabase
+				.from("thoughts")
+				.select("id")
+				.eq("source_id", sourceId)
+				.maybeSingle();
+			return NextResponse.json(
+				{ skipped: "duplicate", id: existing?.id ?? null, source_id: sourceId },
+				{ status: 200 },
+			);
+		}
+		return NextResponse.json({ error: error.message }, { status: 500 });
+	}
 	return NextResponse.json(data, { status: 201 });
 }

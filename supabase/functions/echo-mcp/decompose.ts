@@ -1,5 +1,5 @@
+import { buildEmbeddingText, extractMetadata, getEmbedding } from "./ai.ts";
 import { DECOMPOSE_MIN_TOKENS, supabase } from "./config.ts";
-import { getEmbedding, extractMetadata, buildEmbeddingText } from "./ai.ts";
 
 export function estimateTokens(text: string): number {
 	return Math.ceil(text.length / 4);
@@ -72,6 +72,8 @@ export async function saveSingleThought(
 	row.category = effectiveCategory;
 	if (overrides.is_bundle) row.is_bundle = true;
 	if (overrides.parent_id) row.parent_id = overrides.parent_id;
+	if (overrides.source_id) row.source_id = overrides.source_id;
+	if (overrides.source_kind) row.source_kind = overrides.source_kind;
 
 	const { data: inserted, error } = await supabase
 		.from("thoughts")

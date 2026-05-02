@@ -1,9 +1,8 @@
-import { type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-
+import { classifyRelation, decomposeWithLLM, getEmbedding } from "../ai.ts";
 import { DECOMPOSE_ENABLED, PRIORITY_LABELS, supabase } from "../config.ts";
-import { decomposeWithLLM, classifyRelation, getEmbedding } from "../ai.ts";
-import { shouldDecompose, saveSingleThought } from "../decompose.ts";
+import { saveSingleThought, shouldDecompose } from "../decompose.ts";
 import { updateTopicPagesForThought } from "../topic-pages.ts";
 
 async function insertSourceRelations(thoughtId: string, sourceIds: string[]): Promise<void> {
@@ -41,9 +40,7 @@ async function detectRelations(
 
 		const candidates = matches.filter(
 			(m: { id: string; parent_id?: string; is_bundle?: boolean }) =>
-				m.id !== thoughtId &&
-				!m.is_bundle &&
-				(!parentId || m.parent_id !== parentId),
+				m.id !== thoughtId && !m.is_bundle && (!parentId || m.parent_id !== parentId),
 		);
 
 		const relationSummaries: string[] = [];
@@ -104,7 +101,10 @@ export function registerCaptureThought(server: McpServer) {
 					.describe(
 						"The thought to capture — plain text, Markdown, or JSON. A clear, standalone statement that will make sense when retrieved later by any AI",
 					),
-				thought: z.string().optional().describe("Alias for content — use either content or thought"),
+				thought: z
+					.string()
+					.optional()
+					.describe("Alias for content — use either content or thought"),
 				type: z
 					.string()
 					.optional()
@@ -118,7 +118,9 @@ export function registerCaptureThought(server: McpServer) {
 				due_at: z
 					.string()
 					.optional()
-					.describe("When this thought is due — ISO 8601 datetime string (e.g. 2026-04-01T09:00:00Z)"),
+					.describe(
+						"When this thought is due — ISO 8601 datetime string (e.g. 2026-04-01T09:00:00Z)",
+					),
 				recurrence: z
 					.object({
 						interval_days: z.number().optional().describe("Repeat every N days"),
@@ -127,11 +129,16 @@ export function registerCaptureThought(server: McpServer) {
 							.array(z.number())
 							.optional()
 							.describe("ISO weekday numbers: 1=Mon, 7=Sun"),
-						day_of_month: z.number().optional().describe("Day of month (1-28) for monthly recurrence"),
+						day_of_month: z
+							.number()
+							.optional()
+							.describe("Day of month (1-28) for monthly recurrence"),
 						end_at: z.string().optional().describe("Stop recurring after this ISO date"),
 					})
 					.optional()
-					.describe("Recurrence rule for repeating tasks (e.g. {interval_days: 90} for every 90 days)"),
+					.describe(
+						"Recurrence rule for repeating tasks (e.g. {interval_days: 90} for every 90 days)",
+					),
 				priority: z
 					.number()
 					.optional()
@@ -146,9 +153,33 @@ export function registerCaptureThought(server: McpServer) {
 					.describe(
 						"IDs of source thoughts this was derived from. Explicitly creates 'derives' relations at confidence 1.0, bypassing the automatic relation classifier.",
 					),
+				source_id: z
+					.string()
+					.optional()
+					.describe(
+						'External idempotency key (e.g. "<session_uuid>:<turn_index>" for a Claude Code transcript). If a thought with this source_id exists, capture is skipped.',
+					),
+				source_kind: z
+					.string()
+					.optional()
+					.describe(
+						'Source taxonomy label (e.g. "claude-transcript", "claude-precompact"). Used together with source_id.',
+					),
 			},
 		},
-		async ({ content, thought, type, topics, due_at, recurrence, priority, category, source_ids }) => {
+		async ({
+			content,
+			thought,
+			type,
+			topics,
+			due_at,
+			recurrence,
+			priority,
+			category,
+			source_ids,
+			source_id,
+			source_kind,
+		}) => {
 			try {
 				const text = content || thought;
 				if (!text) {
@@ -163,6 +194,24 @@ export function registerCaptureThought(server: McpServer) {
 					};
 				}
 
+				if (source_id) {
+					const { data: existing } = await supabase
+						.from("thoughts")
+						.select("id")
+						.eq("source_id", source_id)
+						.maybeSingle();
+					if (existing) {
+						return {
+							content: [
+								{
+									type: "text" as const,
+									text: `Skipped duplicate (source_id=${source_id}, existing id=${existing.id})`,
+								},
+							],
+						};
+					}
+				}
+
 				const overrides: Record<string, unknown> = {
 					type,
 					topics,
@@ -170,11 +219,18 @@ export function registerCaptureThought(server: McpServer) {
 					recurrence,
 					priority,
 					category,
+					source_id,
+					source_kind,
 				};
 
 				if (!shouldDecompose(text, DECOMPOSE_ENABLED)) {
-					const { id, metadata, category: savedCategory, embedding, created_at } =
-						await saveSingleThought(text, overrides);
+					const {
+						id,
+						metadata,
+						category: savedCategory,
+						embedding,
+						created_at,
+					} = await saveSingleThought(text, overrides);
 
 					let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${id})`;
 					if (savedCategory) confirmation += ` [${savedCategory}]`;
@@ -215,8 +271,13 @@ export function registerCaptureThought(server: McpServer) {
 				const atomicThoughts = await decomposeWithLLM(text);
 
 				if (!atomicThoughts) {
-					const { id, metadata, category: savedCategory, embedding, created_at } =
-						await saveSingleThought(text, overrides);
+					const {
+						id,
+						metadata,
+						category: savedCategory,
+						embedding,
+						created_at,
+					} = await saveSingleThought(text, overrides);
 
 					let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${id})`;
 					if (savedCategory) confirmation += ` [${savedCategory}]`;

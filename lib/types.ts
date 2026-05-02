@@ -40,6 +40,8 @@ export type Thought = {
 	recurrence: RecurrenceRule | null;
 	priority: number | null;
 	category: string | null;
+	source_id: string | null;
+	source_kind: string | null;
 	created_at: string;
 	updated_at: string;
 };

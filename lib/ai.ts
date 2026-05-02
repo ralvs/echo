@@ -30,13 +30,11 @@ export async function getEmbedding(text: string): Promise<number[]> {
 	return embedding;
 }
 
-export async function extractMetadata(
-	text: string,
-): Promise<Record<string, unknown>> {
+export async function extractMetadata(text: string): Promise<Record<string, unknown>> {
 	try {
 		const { text: content } = await generateText({
 			model: "anthropic/claude-haiku-4-5",
-			maxTokens: 1024,
+			maxOutputTokens: 1024,
 			messages: [
 				{ role: "system", content: getExtractionPrompt() },
 				{ role: "user", content: text },
