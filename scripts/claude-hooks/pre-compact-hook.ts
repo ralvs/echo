@@ -50,7 +50,8 @@ async function summarize(
 	const system = `You write a compaction-bookmark for a Claude Code session about to be compressed.
 Capture what would be lost: open problems, current hypotheses, decisions just made, in-flight tasks, unresolved questions, key file paths or identifiers.
 Skip pleasantries, resolved issues, and anything reproducible from the codebase.
-Write 4–8 bullet points in the user's voice. Be specific. No generic advice. No code blocks.`;
+Write 4–8 bullet points in the user's voice. Be specific. No generic advice. No code blocks.
+Always write in English. If the exchanges are in another language, translate to English.`;
 
 	const userPrompt = `${projectName ? `Project: ${projectName}\n\n` : ""}Recent exchanges:\n\n${transcript}`;
 

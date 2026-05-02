@@ -41,6 +41,8 @@ DO NOT capture:
 
 When capturing, write a self-contained "content" string in the user's voice — a single statement that will make sense out of context six months from now. Don't quote the assistant verbatim; distill the durable fact.
 
+Language: The exchange may be in any language. If it is not in English, mentally translate it before evaluating. Always write the "content" field in English regardless of the source language. Tags in "suggested_topics" must also be in English.
+
 Return ONLY valid JSON, no markdown fences:
 {
   "should_capture": boolean,
