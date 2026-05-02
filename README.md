@@ -15,6 +15,9 @@ A personal knowledge capture system. Thoughts go in, get tagged and embedded by 
 - **Profile** synthesize a structured user profile from captured knowledge (static facts + dynamic activity)
 - **Version** every thought update; history archived in `thought_versions`
 - **MCP server** exposes 14 tools so Claude can read, write, reason, and maintain the knowledge base directly
+- **Auto-capture** evaluate every Claude Code turn through a relevance gate and save worthy exchanges silently after each assistant turn
+- **Mine** historical Claude Code transcripts into the knowledge base with cost-safe batching and resume support
+- **Translate** non-English content to English before storage so embeddings are consistent and search works regardless of the original conversation language
 
 ## Architecture
 
@@ -61,6 +64,8 @@ Every capture runs two LLM calls **in parallel** to minimize latency:
 
 1. **Metadata extraction** (Claude Haiku) — extracts type, topics, people, action items, dates, memory type, `expires_at`, `event_at`, priority, category, recurrence, and cost/url/rating when present
 2. **Embedding** (text-embedding-3-small) — generates a 1536-dim vector from enriched text (content + topics + category appended) so semantic similarity captures metadata concepts, not just raw text
+
+**Language normalization:** Before reaching the capture pipeline, content sourced from Claude Code hooks or the mine CLI is translated to English by the relevance gate. All stored content and topics land in a single language space so embeddings are consistent and cross-language searches work correctly.
 
 After saving, two more non-blocking steps run:
 - **Relation detection** — searches for high-similarity existing thoughts (≥ 0.8) and asks the LLM to classify the relationship (updates / extends / derives / related)
@@ -189,13 +194,146 @@ The Supabase service role key is used internally for DB access and is never expo
 
 ---
 
+## Claude Code auto-capture
+
+Two optional hooks turn Echo into a passive memory layer for every Claude Code session. Install once; they run silently after that.
+
+### Stop hook — per-turn capture
+
+Fires after every assistant turn. Reads the last user→assistant exchange from the session transcript, runs it through a Haiku **relevance gate**, and POSTs to Echo if worthy. Idempotent via `source_id = <session>:<turnIndex>` — re-running or restarting Claude Code never creates duplicates.
+
+**Gate captures (any one is enough):**
+- Decisions made or confirmed (architectural, library, business, lifestyle)
+- Expressed preferences ("I prefer X", "always do Y", "avoid Z")
+- Non-obvious learnings, gotchas, domain facts
+- Action items or follow-ups
+- New project context (goals, constraints, stakeholders)
+
+**Gate skips:** tool output dumps, trivial back-and-forth, unresolved debugging, re-statements of public docs.
+
+### PreCompact hook — compaction bookmark
+
+Fires before context compression. Summarizes the last 12 exchanges into an episodic thought with a 30-day expiry. Ensures mid-flight context — open problems, current hypotheses, in-progress decisions — survives compaction.
+
+### Language translation
+
+Both hooks instruct Haiku to translate any non-English content to English before producing output. This keeps all stored content and topics in a single language space so embeddings are consistent and search works regardless of the original conversation language.
+
+### Install
+
+Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). Update the `command` paths to match your local clone.
+
+```jsonc
+{
+  "env": {
+    "ECHO_API_URL": "http://localhost:3000"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run /path/to/echo/scripts/claude-hooks/stop-hook.ts",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run /path/to/echo/scripts/claude-hooks/pre-compact-hook.ts",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Required env** (set in your shell profile or in the `"env"` block above):
+
+| Var | Description |
+|---|---|
+| `AI_GATEWAY_API_KEY` | Same key Echo uses for metadata extraction and embeddings |
+| `ECHO_API_URL` | URL where the Echo server is running (default: `http://localhost:3000`) |
+
+Both hooks fail silently — any error logs to stderr and exits 0 so they never block a session.
+
+### Verify
+
+After installing, have a short Claude Code conversation with one clear decision and one off-topic exchange, then:
+
+```bash
+curl 'http://localhost:3000/api/thoughts?days=1' | jq '.[] | select(.source_kind=="claude-transcript")'
+```
+
+Expect: the decision captured, the off-topic not. Trigger compaction and confirm a `claude-precompact` thought appears with `memory_type: "episodic"` and `expires_at` ~30 days out.
+
+---
+
+## Transcript mining
+
+`scripts/mine-claude-transcripts.ts` backfills Echo from historical Claude Code session files in `~/.claude/projects/`. Safe to re-run at any time — fully idempotent via checkpoint + unique `source_id` index.
+
+### How it works
+
+1. **Pre-filter (no LLM)** — drops tool-output-only turns, short messages, and queue operations. Eliminates ~50–70% of turns before any API spend.
+2. **Relevance gate (Haiku)** — surviving turns go through the same gate as the Stop hook. Non-English content is translated to English before evaluation.
+3. **Capture** — gate-positive turns POST to `/api/thoughts` with `source_kind: "claude-transcript"`.
+4. **Checkpoint** — progress saved to `~/.echo-mine-state.json` after every turn. `Ctrl+C`-safe; re-run continues from where it stopped.
+
+### Usage
+
+```bash
+# Measure exposure across all projects — no API calls, free
+bun run mine --dry-run
+
+# Process one project (recommended: start with the smallest to validate gate quality)
+bun run mine --project quantic --batch-size 250
+
+# Tune gate prompt and redo a project from scratch cheaply
+bun run mine --project quantic --reset-checkpoint
+
+# Custom budget cap
+bun run mine --project echo --batch-size 250 --max-cost-usd 2.00
+```
+
+### Flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--dry-run` | off | Measure and plan only. No API calls. Writes `scripts/mine-progress.md`. |
+| `--project <name>` | required | One of: `echo`, `worthscene`, `ora`, `quantic` |
+| `--batch-size <N>` | 250 | Max gate calls per run (~10% of total exposure) |
+| `--max-cost-usd <N>` | 1.50 | USD ceiling per run; stops gracefully, checkpoint saved |
+| `--reset-checkpoint` | off | Clear checkpoint for the project before running |
+
+### Progress tracking
+
+After each run, `scripts/mine-progress.md` (gitignored — per-machine state) is updated with a batch checklist, a run-log table, and a copy-paste command for the next batch. Open it to see exactly where you are and what to run next.
+
+Projected cost: ~$1.00–1.50 per batch of 250 turns at Haiku 4.5 rates ($1/M input, $5/M output).
+
+### Allowed projects
+
+The allowlist is hardcoded in `scripts/mine-claude-transcripts.allowlist.ts`. Extending scope requires editing the source and committing — intentional. There is no `--allow-any` escape hatch.
+
+---
+
 ## Project structure
 
 ```
 echo/
 ├── app/
 │   ├── api/
-│   │   ├── thoughts/       # CRUD
+│   │   ├── thoughts/       # CRUD (accepts source_id/source_kind for idempotent auto-capture)
 │   │   ├── search/         # Hybrid search endpoint
 │   │   └── stats/          # Dashboard stats
 │   ├── capture/page.tsx
@@ -204,9 +342,22 @@ echo/
 ├── components/
 ├── lib/
 │   ├── ai.ts               # AI Gateway calls (metadata + embeddings)
+│   ├── relevance-gate.ts   # Shared Haiku gate used by hooks + mine CLI
 │   ├── types.ts
 │   ├── supabase.ts
 │   └── store.ts            # Zustand store
+├── scripts/
+│   ├── claude-hooks/
+│   │   ├── stop-hook.ts        # Claude Code Stop hook — per-turn auto-capture
+│   │   ├── pre-compact-hook.ts # Claude Code PreCompact hook — compaction bookmark
+│   │   └── README.md           # Hook install instructions
+│   ├── lib/
+│   │   ├── transcript-prefilter.ts  # JSONL transcript parser + cheap pre-filter
+│   │   ├── cost-tracker.ts          # Token + USD tracking with per-batch ceiling
+│   │   ├── mine-state.ts            # Checkpoint state (persisted to ~/.echo-mine-state.json)
+│   │   └── progress-file.ts         # Writes scripts/mine-progress.md
+│   ├── mine-claude-transcripts.ts           # Mine CLI entry point
+│   └── mine-claude-transcripts.allowlist.ts # Hardcoded project allowlist
 └── supabase/
     ├── functions/
     │   └── echo-mcp/
@@ -228,7 +379,8 @@ echo/
         ├── 00010_temporal_grounding.sql
         ├── 00011_knowledge_graph.sql
         ├── 00012_topic_pages.sql
-        └── 00013_lint_support.sql
+        ├── 00013_lint_support.sql
+        └── 00015_add_source_tracking.sql
 ```
 
 ---
@@ -316,3 +468,9 @@ vercel --prod
 | Topic page updates are non-blocking (fire-and-forget) | Capture must never fail because a background compilation failed; data loss on page miss is acceptable |
 | `source_ids` bypasses LLM relation classifier | Explicit provenance is always `derives` at confidence 1.0 — no need to re-classify what the caller already knows |
 | Lint tool is on-demand, not a background job | Keeps the user in the loop; contradiction detection via LLM requires a deliberate trigger |
+| Auto-capture uses a relevance gate (not capture-everything) | Firehose capture creates noise that degrades search quality; gate cost (~$0.001/turn) is negligible vs. the recall benefit |
+| Translation folded into the gate call (not a separate step) | Adds zero extra API calls — Haiku receives the original exchange and produces English output in one shot |
+| Single-language storage (always English) | Embeddings for the same concept in different languages land in different vector spaces; a single-language corpus is a hard requirement for consistent semantic search |
+| `source_id` unique partial index (not application-level dedup) | Dedup at the DB layer is race-condition-safe and works across independent re-runs of the mine CLI without any coordination |
+| Mine CLI is user-invoked, not auto-run | Bulk historical ingestion involves real cost decisions; the user should see the dry-run projection before any spend happens |
+| Mine pre-filter runs before the gate | Dropping ~50–70% of turns via cheap regex before any LLM call keeps the per-batch cost predictable and avoids wasting gate calls on tool noise |
