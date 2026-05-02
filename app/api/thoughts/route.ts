@@ -98,18 +98,19 @@ export async function POST(req: NextRequest) {
 	// Run AI processing in parallel: embedding + metadata extraction
 	const [embedding, extracted] = await Promise.all([getEmbedding(text), extractMetadata(text)]);
 
-	// Separate real columns from metadata
-	const extractedCategory = extracted.category as string | null;
-	delete extracted.category;
-	const extractedDueAt = extracted.due_at as string | null;
-	delete extracted.due_at;
-	const extractedRecurrence = extracted.recurrence as Record<string, unknown> | null;
-	delete extracted.recurrence;
-	const extractedPriority = extracted.priority as number | null;
-	delete extracted.priority;
+	// Destructure column fields from metadata fields — no manual delete needed
+	const {
+		category: extractedCategory,
+		due_at: extractedDueAt,
+		recurrence: extractedRecurrence,
+		priority: extractedPriority,
+		expires_at: extractedExpiresAt,
+		event_at: extractedEventAt,
+		...jsonbFields
+	} = extracted;
 
-	// Build metadata — caller overrides take precedence
-	const metadata = { ...extracted, source: "echo" } as Record<string, unknown>;
+	// Build metadata — caller overrides take precedence over extracted values
+	const metadata: Record<string, unknown> = { ...jsonbFields, source: "echo" };
 	if (body.metadata?.type) metadata.type = body.metadata.type;
 	if (body.metadata?.topics) metadata.topics = body.metadata.topics;
 	if (body.metadata?.memory_type) metadata.memory_type = body.metadata.memory_type;
@@ -145,6 +146,8 @@ export async function POST(req: NextRequest) {
 	if (sourceId) row.source_id = sourceId;
 	if (sourceKind) row.source_kind = sourceKind;
 	if (typeof body.expires_at === "string") row.expires_at = body.expires_at;
+	if (extractedExpiresAt && !body.expires_at) row.expires_at = extractedExpiresAt;
+	if (extractedEventAt) row.event_at = extractedEventAt;
 
 	const { data, error } = await supabase
 		.from("thoughts")

@@ -1,4 +1,4 @@
-import { buildEmbeddingText, extractMetadata, getEmbedding } from "./ai.ts";
+import { buildEmbeddingText, decomposeWithLLM, extractMetadata, getEmbedding } from "./ai.ts";
 import { DECOMPOSE_MIN_TOKENS, supabase } from "./config.ts";
 
 export function estimateTokens(text: string): number {
@@ -12,27 +12,46 @@ export function hasMultipleTopics(text: string): boolean {
 	return bullets >= 3 || headers >= 2 || paragraphs.length >= 3;
 }
 
-export function shouldDecompose(text: string, enabled: boolean): boolean {
-	return enabled && estimateTokens(text) >= DECOMPOSE_MIN_TOKENS && hasMultipleTopics(text);
+export type AtomicThought = { content: string; type: string; topic: string };
+
+/**
+ * Single interface over the heuristic + LLM decomposition decision.
+ * Returns atomic thoughts when decomposition is warranted, null otherwise.
+ * Callers never need to reason about the two-layer fallback.
+ */
+export async function decompose(text: string, enabled: boolean): Promise<AtomicThought[] | null> {
+	if (!enabled || estimateTokens(text) < DECOMPOSE_MIN_TOKENS || !hasMultipleTopics(text)) {
+		return null;
+	}
+	return decomposeWithLLM(text);
 }
+
+export type SavedThought = {
+	id: string;
+	metadata: Record<string, unknown>;
+	category: string | null;
+	embedding: number[];
+	created_at: string;
+};
 
 export async function saveSingleThought(
 	text: string,
 	overrides: Record<string, unknown>,
-): Promise<{ id: string; metadata: Record<string, unknown>; category: string | null }> {
-	// Extract metadata first so we can build an enriched embedding text
+): Promise<SavedThought> {
 	const extracted = await extractMetadata(text);
 
-	const extractedCategory = extracted.category as string | null;
-	delete extracted.category;
+	// Destructure column fields — no manual delete needed
+	const {
+		category: extractedCategory,
+		expires_at: extractedExpiresAt,
+		event_at: extractedEventAt,
+		due_at: extractedDueAt,
+		recurrence: extractedRecurrence,
+		priority: extractedPriority,
+		...metadataFields
+	} = extracted;
 
-	// expires_at and event_at are columns, not metadata — pull them out
-	const extractedExpiresAt = (extracted.expires_at as string | null) ?? null;
-	delete extracted.expires_at;
-	const extractedEventAt = (extracted.event_at as string | null) ?? null;
-	delete extracted.event_at;
-
-	const metadata = { ...extracted, source: "mcp" } as Record<string, unknown>;
+	const metadata: Record<string, unknown> = { ...metadataFields, source: "mcp" };
 	if (overrides.type) metadata.type = overrides.type;
 	if (overrides.topics) {
 		metadata.topics =
@@ -45,9 +64,10 @@ export async function saveSingleThought(
 	}
 
 	const effectiveType = metadata.type as string;
+	const effectiveDueAt = overrides.due_at || extractedDueAt;
 	if (
 		effectiveType === "task" ||
-		overrides.due_at ||
+		effectiveDueAt ||
 		(Array.isArray(metadata.action_items) && metadata.action_items.length > 0)
 	) {
 		metadata.status = "open";
@@ -63,13 +83,18 @@ export async function saveSingleThought(
 		metadata,
 	};
 
-	if (overrides.due_at) row.due_at = overrides.due_at;
+	// Real columns — caller overrides > extracted values
+	if (overrides.due_at || extractedDueAt) row.due_at = overrides.due_at || extractedDueAt;
+	if (overrides.recurrence || extractedRecurrence)
+		row.recurrence = overrides.recurrence || extractedRecurrence;
+	if (overrides.priority !== undefined && overrides.priority !== null) {
+		row.priority = overrides.priority;
+	} else if (extractedPriority && extractedPriority > 0) {
+		row.priority = extractedPriority;
+	}
+	row.category = effectiveCategory;
 	if (extractedExpiresAt) row.expires_at = extractedExpiresAt;
 	if (extractedEventAt) row.event_at = extractedEventAt;
-	if (overrides.recurrence) row.recurrence = overrides.recurrence;
-	if (overrides.priority !== undefined && overrides.priority !== null)
-		row.priority = overrides.priority;
-	row.category = effectiveCategory;
 	if (overrides.is_bundle) row.is_bundle = true;
 	if (overrides.parent_id) row.parent_id = overrides.parent_id;
 	if (overrides.source_id) row.source_id = overrides.source_id;
