@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useThoughtsStore } from "@/lib/store";
 import type { ThoughtFilters } from "@/lib/types";
 
@@ -11,9 +11,11 @@ export function useThoughtList() {
 	const setIsLoading = useThoughtsStore((s) => s.setIsLoading);
 	const filters = useThoughtsStore((s) => s.filters);
 	const setFilters = useThoughtsStore((s) => s.setFilters);
+	const [error, setError] = useState<Error | null>(null);
 
 	const refresh = useCallback(async () => {
 		setIsLoading(true);
+		setError(null);
 		const params = new URLSearchParams({ limit: "100" });
 		if (filters.type) params.set("type", filters.type);
 		if (filters.topic) params.set("topic", filters.topic);
@@ -28,13 +30,24 @@ export function useThoughtList() {
 		try {
 			const res = await fetch(`/api/thoughts?${params}`);
 			const data = await res.json();
+			if (!res.ok) {
+				throw new Error(data.error ?? `HTTP ${res.status}`);
+			}
 			setThoughts(Array.isArray(data) ? data : []);
-		} catch {
+		} catch (err) {
+			setError(err instanceof Error ? err : new Error(String(err)));
 			setThoughts([]);
 		} finally {
 			setIsLoading(false);
 		}
 	}, [filters, setThoughts, setIsLoading]);
 
-	return { thoughts, isLoading, filters, setFilters: setFilters as (f: ThoughtFilters) => void, refresh };
+	return {
+		thoughts,
+		isLoading,
+		error,
+		filters,
+		setFilters: setFilters as (f: ThoughtFilters) => void,
+		refresh,
+	};
 }

@@ -11,21 +11,29 @@ export function useSearch() {
 	const setSearchQuery = useThoughtsStore((s) => s.setSearchQuery);
 	const [results, setResults] = useState<SearchResult[]>([]);
 	const [isSearching, setIsSearching] = useState(false);
+	const [error, setError] = useState<Error | null>(null);
 
 	async function search(query = searchQuery) {
 		if (!query.trim()) {
 			setResults([]);
+			setError(null);
 			return;
 		}
 		setIsSearching(true);
+		setError(null);
 		try {
-			const data = await fetch("/api/search", {
+			const res = await fetch("/api/search", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({ query, limit: 30 }),
-			}).then((r) => r.json());
+			});
+			const data = await res.json();
+			if (!res.ok) {
+				throw new Error(data.error ?? `HTTP ${res.status}`);
+			}
 			setResults(Array.isArray(data) ? data : []);
-		} catch {
+		} catch (err) {
+			setError(err instanceof Error ? err : new Error(String(err)));
 			setResults([]);
 		} finally {
 			setIsSearching(false);
@@ -35,6 +43,7 @@ export function useSearch() {
 	function clearSearch() {
 		setSearchQuery("");
 		setResults([]);
+		setError(null);
 	}
 
 	return {
@@ -42,6 +51,7 @@ export function useSearch() {
 		setQuery: setSearchQuery,
 		results,
 		isSearching,
+		error,
 		search,
 		clearSearch,
 	};
