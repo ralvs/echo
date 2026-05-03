@@ -1,16 +1,16 @@
 export const TYPE_COLORS: Record<string, string> = {
-	observation: "#5a8fa8",
-	task: "#c49a3c",
-	idea: "#d4a052",
-	reference: "#9a9589",
-	person_note: "#5b9a6b",
+	observation: "#7bb8d4",
+	task: "#e8b86d",
+	idea: "#c4a8e0",
+	reference: "#82c496",
+	person_note: "#d4a098",
 };
 
 export const DEFAULT_NODE_COLOR = "#6b665c";
 
 export const LINK_COLORS: Record<string, string> = {
-	updates: "#d4a052",
+	updates: "#e8b86d",
 	extends: "#9a7339",
-	derives: "#5a8fa8",
+	derives: "#7bb8d4",
 	related: "rgba(154, 149, 137, 0.22)",
 };
