@@ -98,22 +98,28 @@ export default function DashboardPage() {
 						{sortEntries(stats?.types || {}).map(([type, count]) => {
 							const pct = stats?.total ? (count / stats.total) * 100 : 0;
 							return (
-								<div key={type}>
+								<a
+									key={type}
+									href={`/thoughts?type=${encodeURIComponent(type)}`}
+									className="block group"
+								>
 									<div className="flex justify-between items-center mb-1.5">
-										<span className="text-sm text-text-primary capitalize">
+										<span className="text-sm text-text-primary capitalize group-hover:text-amber-bright transition-colors">
 											{type.replace(/_/g, " ")}
 										</span>
-										<span className="text-xs font-mono text-text-tertiary">{count}</span>
+										<span className="text-xs font-mono text-text-tertiary group-hover:text-amber-glow transition-colors">
+											{count}
+										</span>
 									</div>
 									<div className="h-1 bg-surface-3 rounded-full overflow-hidden">
 										<motion.div
 											initial={{ width: 0 }}
 											animate={{ width: `${pct}%` }}
 											transition={{ duration: 0.8, delay: 0.4 }}
-											className="h-full bg-amber-glow/60 rounded-full"
+											className="h-full bg-amber-glow/60 group-hover:bg-amber-glow rounded-full transition-colors"
 										/>
 									</div>
-								</div>
+								</a>
 							);
 						})}
 					</div>
@@ -131,7 +137,12 @@ export default function DashboardPage() {
 					</h2>
 					<div className="flex flex-wrap gap-2">
 						{sortEntries(stats?.topics || {}).map(([topic, count]) => (
-							<TopicPill key={topic} topic={topic} count={count} />
+							<TopicPill
+								key={topic}
+								topic={topic}
+								count={count}
+								href={`/thoughts?topic=${encodeURIComponent(topic)}`}
+							/>
 						))}
 					</div>
 				</motion.div>
@@ -148,12 +159,18 @@ export default function DashboardPage() {
 					</h2>
 					<div className="space-y-2.5">
 						{sortEntries(stats?.people || {}).map(([person, count]) => (
-							<div key={person} className="flex justify-between items-center">
-								<span className="text-sm text-text-primary">{person}</span>
-								<span className="text-xs font-mono text-text-tertiary">
+							<a
+								key={person}
+								href={`/thoughts?person=${encodeURIComponent(person)}`}
+								className="flex justify-between items-center group"
+							>
+								<span className="text-sm text-text-primary group-hover:text-amber-bright transition-colors">
+									{person}
+								</span>
+								<span className="text-xs font-mono text-text-tertiary group-hover:text-amber-glow transition-colors">
 									{count} mention{count !== 1 ? "s" : ""}
 								</span>
-							</div>
+							</a>
 						))}
 						{Object.keys(stats?.people || {}).length === 0 && (
 							<p className="text-xs text-text-tertiary italic">No people mentioned yet</p>

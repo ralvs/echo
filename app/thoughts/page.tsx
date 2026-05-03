@@ -19,7 +19,6 @@ const TIME_RANGES = [
 export default function ThoughtsPage() {
 	const { thoughts, isLoading, filters, setFilters, refresh } = useThoughtList();
 	const { query, setQuery, results: searchResults, isSearching, search } = useSearch();
-
 	useEffect(() => {
 		if (!query) refresh();
 	}, [refresh, query]);
