@@ -86,7 +86,9 @@ export function registerUpdateThought(server: McpServer) {
 				const extracted = await extractMetadata(content, knownPeople);
 
 				const extractedCategory = extracted.category as string | null;
-				const extractedPersonDefinitions = extracted.person_definitions as { canonical_name: string; role: string }[] | undefined;
+				const extractedPersonDefinitions = extracted.person_definitions as
+					| { canonical_name: string; role: string }[]
+					| undefined;
 				delete extracted.category;
 				delete extracted.person_definitions;
 
@@ -95,7 +97,10 @@ export function registerUpdateThought(server: McpServer) {
 				if (topics) {
 					metadata.topics =
 						typeof topics === "string"
-							? topics.split(",").map((t: string) => t.trim()).filter(Boolean)
+							? topics
+									.split(",")
+									.map((t: string) => t.trim())
+									.filter(Boolean)
 							: topics;
 				}
 
@@ -118,10 +123,7 @@ export function registerUpdateThought(server: McpServer) {
 				if (category !== undefined) updateRow.category = category;
 				else if (extractedCategory) updateRow.category = extractedCategory;
 
-				const { error: updateErr } = await supabase
-					.from("thoughts")
-					.update(updateRow)
-					.eq("id", id);
+				const { error: updateErr } = await supabase.from("thoughts").update(updateRow).eq("id", id);
 
 				if (updateErr) {
 					return {

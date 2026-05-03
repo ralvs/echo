@@ -43,7 +43,9 @@ describe("buildEmbeddingText", () => {
 			{ topics: ["cooking"], type: "task", people: ["Andrea"] },
 			"italian",
 		);
-		expect(result).toBe("note\n\nTopics: cooking\n\nCategory: italian\n\nType: task\n\nPeople: Andrea");
+		expect(result).toBe(
+			"note\n\nTopics: cooking\n\nCategory: italian\n\nType: task\n\nPeople: Andrea",
+		);
 	});
 
 	it("ignores empty topics array", () => {

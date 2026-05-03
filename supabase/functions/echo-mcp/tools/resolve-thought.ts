@@ -42,9 +42,7 @@ export function registerResolveThought(server: McpServer) {
 
 				const currentMetadata = thought.metadata as Record<string, unknown>;
 				const preview =
-					thought.content.length > 80
-						? thought.content.substring(0, 80) + "..."
-						: thought.content;
+					thought.content.length > 80 ? thought.content.substring(0, 80) + "..." : thought.content;
 
 				// Recurring thought: resolve-and-advance
 				if (status === "resolved" && thought.recurrence) {
@@ -64,7 +62,9 @@ export function registerResolveThought(server: McpServer) {
 
 						if (updateErr) {
 							return {
-								content: [{ type: "text" as const, text: `Failed to resolve: ${updateErr.message}` }],
+								content: [
+									{ type: "text" as const, text: `Failed to resolve: ${updateErr.message}` },
+								],
 								isError: true,
 							};
 						}

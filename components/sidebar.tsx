@@ -9,7 +9,16 @@ const navItems = [
 		href: "/",
 		label: "Overview",
 		icon: (
-			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+			<svg
+				width="18"
+				height="18"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
 				<rect x="3" y="3" width="7" height="7" rx="1" />
 				<rect x="14" y="3" width="7" height="7" rx="1" />
 				<rect x="3" y="14" width="7" height="7" rx="1" />
@@ -21,7 +30,16 @@ const navItems = [
 		href: "/thoughts",
 		label: "Thoughts",
 		icon: (
-			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+			<svg
+				width="18"
+				height="18"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
 				<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
 			</svg>
 		),
@@ -30,7 +48,16 @@ const navItems = [
 		href: "/capture",
 		label: "Capture",
 		icon: (
-			<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+			<svg
+				width="18"
+				height="18"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
 				<circle cx="12" cy="12" r="10" />
 				<line x1="12" y1="8" x2="12" y2="16" />
 				<line x1="8" y1="12" x2="16" y2="12" />
@@ -51,18 +78,13 @@ export function Sidebar() {
 						<div className="absolute inset-[6px] rounded-full bg-amber-glow/40" />
 						<div className="absolute inset-[10px] rounded-full bg-amber-glow" />
 					</div>
-					<span className="font-display text-xl text-text-primary tracking-wide">
-						Echo
-					</span>
+					<span className="font-display text-xl text-text-primary tracking-wide">Echo</span>
 				</Link>
 			</div>
 
 			<nav className="flex-1 px-3 py-4 space-y-0.5" aria-label="Main navigation">
 				{navItems.map((item) => {
-					const isActive =
-						item.href === "/"
-							? pathname === "/"
-							: pathname.startsWith(item.href);
+					const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
 
 					return (
 						<Link
@@ -79,14 +101,18 @@ export function Sidebar() {
 							)}
 							<span
 								className={`relative z-10 transition-colors ${
-									isActive ? "text-amber-glow" : "text-text-tertiary group-hover:text-text-secondary"
+									isActive
+										? "text-amber-glow"
+										: "text-text-tertiary group-hover:text-text-secondary"
 								}`}
 							>
 								{item.icon}
 							</span>
 							<span
 								className={`relative z-10 transition-colors ${
-									isActive ? "text-text-primary" : "text-text-secondary group-hover:text-text-primary"
+									isActive
+										? "text-text-primary"
+										: "text-text-secondary group-hover:text-text-primary"
 								}`}
 							>
 								{item.label}

@@ -7,11 +7,7 @@ export const metadata: Metadata = {
 	description: "Browse, search, and manage your thoughts.",
 };
 
-export default function RootLayout({
-	children,
-}: {
-	children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
 	return (
 		<html lang="en">
 			<body>

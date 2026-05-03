@@ -1,12 +1,12 @@
 {
-  "version": "0.0.1",
-  "configurations": [
-    {
-      "name": "echo-dev",
-      "runtimeExecutable": "/Users/renan/.bun/bin/bun",
-      "runtimeArgs": ["run", "dev"],
-      "port": 3000,
-      "autoPort": true
-    }
-  ]
+	"version": "0.0.1",
+	"configurations": [
+		{
+			"name": "echo-dev",
+			"runtimeExecutable": "/Users/renan/.bun/bin/bun",
+			"runtimeArgs": ["run", "dev"],
+			"port": 3000,
+			"autoPort": true
+		}
+	]
 }

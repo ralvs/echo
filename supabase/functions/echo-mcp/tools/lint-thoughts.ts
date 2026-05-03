@@ -16,11 +16,7 @@ export function registerLintThoughts(server: McpServer) {
 					.optional()
 					.default(["contradictions", "orphans", "stale", "duplicates"])
 					.describe("Which checks to run. Default: all"),
-				max_items: z
-					.number()
-					.optional()
-					.default(10)
-					.describe("Max issues to report per category"),
+				max_items: z.number().optional().default(10).describe("Max issues to report per category"),
 			},
 		},
 		async ({ checks, max_items }) => {
@@ -49,8 +45,7 @@ export function registerLintThoughts(server: McpServer) {
 
 					if (limited.length) {
 						const lines = limited.map(
-							(c) =>
-								`  • ${c.explanation}\n    → A: ${c.thought_a}\n    → B: ${c.thought_b}`,
+							(c) => `  • ${c.explanation}\n    → A: ${c.thought_a}\n    → B: ${c.thought_b}`,
 						);
 						sections.push(`## Contradictions (${limited.length})\n${lines.join("\n\n")}`);
 					} else {
@@ -90,16 +85,13 @@ export function registerLintThoughts(server: McpServer) {
 								r.target_id,
 							]),
 						);
-						trulyOrphaned = (orphans ?? []).filter(
-							(t: { id: string }) => !connectedIds.has(t.id),
-						);
+						trulyOrphaned = (orphans ?? []).filter((t: { id: string }) => !connectedIds.has(t.id));
 					}
 
 					if (trulyOrphaned.length) {
 						const lines = trulyOrphaned.map(
 							(t: { id: string; content: string; created_at: string }) => {
-								const preview =
-									t.content.length > 80 ? t.content.slice(0, 80) + "…" : t.content;
+								const preview = t.content.length > 80 ? t.content.slice(0, 80) + "…" : t.content;
 								return `  • [${new Date(t.created_at).toLocaleDateString()}] ${preview}\n    ID: ${t.id}`;
 							},
 						);
@@ -126,28 +118,17 @@ export function registerLintThoughts(server: McpServer) {
 						.limit(200);
 
 					const stale = (staleRows ?? [])
-						.filter(
-							(t: {
-								thought_relations: { relation_type: string; is_latest: boolean }[];
-							}) => {
-								const updateRels = t.thought_relations.filter(
-									(r) => r.relation_type === "updates",
-								);
-								return (
-									updateRels.length > 0 && updateRels.every((r) => r.is_latest === false)
-								);
-							},
-						)
+						.filter((t: { thought_relations: { relation_type: string; is_latest: boolean }[] }) => {
+							const updateRels = t.thought_relations.filter((r) => r.relation_type === "updates");
+							return updateRels.length > 0 && updateRels.every((r) => r.is_latest === false);
+						})
 						.slice(0, max_items);
 
 					if (stale.length) {
-						const lines = stale.map(
-							(t: { id: string; content: string; created_at: string }) => {
-								const preview =
-									t.content.length > 80 ? t.content.slice(0, 80) + "…" : t.content;
-								return `  • [${new Date(t.created_at).toLocaleDateString()}] ${preview}\n    ID: ${t.id}`;
-							},
-						);
+						const lines = stale.map((t: { id: string; content: string; created_at: string }) => {
+							const preview = t.content.length > 80 ? t.content.slice(0, 80) + "…" : t.content;
+							return `  • [${new Date(t.created_at).toLocaleDateString()}] ${preview}\n    ID: ${t.id}`;
+						});
 						sections.push(
 							`## Stale Facts (${stale.length}, superseded by newer updates)\n${lines.join("\n\n")}\nSuggested action: delete or archive.`,
 						);
@@ -158,13 +139,10 @@ export function registerLintThoughts(server: McpServer) {
 
 				// --- Check 4: Near-duplicates (embedding) ---
 				if (checks.includes("duplicates")) {
-					const { data: dupes, error: dupesError } = await supabase.rpc(
-						"find_near_duplicates",
-						{
-							similarity_threshold: 0.95,
-							max_results: max_items,
-						},
-					);
+					const { data: dupes, error: dupesError } = await supabase.rpc("find_near_duplicates", {
+						similarity_threshold: 0.95,
+						max_results: max_items,
+					});
 
 					if (dupesError) {
 						sections.push(`## Near-Duplicates\nError running check: ${dupesError.message}`);

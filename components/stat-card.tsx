@@ -21,9 +21,7 @@ export function StatCard({ label, value, subtitle, delay = 0 }: StatCardProps) {
 				{label}
 			</p>
 			<p className="font-display text-3xl text-text-primary">{value}</p>
-			{subtitle && (
-				<p className="text-xs text-text-secondary mt-1.5">{subtitle}</p>
-			)}
+			{subtitle && <p className="text-xs text-text-secondary mt-1.5">{subtitle}</p>}
 		</motion.div>
 	);
 }

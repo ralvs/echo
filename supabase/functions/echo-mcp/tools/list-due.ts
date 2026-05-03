@@ -64,19 +64,18 @@ export function registerListDue(server: McpServer) {
 					overdue = od || [];
 				}
 
-				const formatItem = (
-					t: {
-						id: string;
-						content: string;
-						metadata: Record<string, unknown>;
-						due_at: string;
-						priority: number | null;
-						category: string | null;
-						recurrence: RecurrenceRule | null;
-					},
-				) => {
+				const formatItem = (t: {
+					id: string;
+					content: string;
+					metadata: Record<string, unknown>;
+					due_at: string;
+					priority: number | null;
+					category: string | null;
+					recurrence: RecurrenceRule | null;
+				}) => {
 					const m = t.metadata || {};
-					const priorityTag = t.priority && t.priority > 0 ? ` [${PRIORITY_LABELS[t.priority]}]` : "";
+					const priorityTag =
+						t.priority && t.priority > 0 ? ` [${PRIORITY_LABELS[t.priority]}]` : "";
 					const catTag = t.category ? ` (${t.category})` : "";
 					const recurTag = t.recurrence ? " ↻" : "";
 					const preview = t.content.length > 80 ? t.content.substring(0, 80) + "..." : t.content;
@@ -98,7 +97,12 @@ export function registerListDue(server: McpServer) {
 
 				if (!overdue.length && !upcoming?.length) {
 					return {
-						content: [{ type: "text" as const, text: `Nothing due in the next ${days_ahead} days. All clear.` }],
+						content: [
+							{
+								type: "text" as const,
+								text: `Nothing due in the next ${days_ahead} days. All clear.`,
+							},
+						],
 					};
 				}
 

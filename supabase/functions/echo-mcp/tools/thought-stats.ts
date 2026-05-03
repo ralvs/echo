@@ -38,9 +38,10 @@ export function registerThoughtStats(server: McpServer) {
 						for (const t of m.topics) topics[t as string] = (topics[t as string] || 0) + 1;
 					if (Array.isArray(m.people))
 						for (const p of m.people) {
-						const name = typeof p === "string" ? p : (p as Record<string, unknown>)?.name;
-						if (typeof name === "string" && name) people[name as string] = (people[name as string] || 0) + 1;
-					}
+							const name = typeof p === "string" ? p : (p as Record<string, unknown>)?.name;
+							if (typeof name === "string" && name)
+								people[name as string] = (people[name as string] || 0) + 1;
+						}
 					if (r.category) categories[r.category] = (categories[r.category] || 0) + 1;
 					if (r.recurrence) recurringCount++;
 					if (r.due_at && new Date(r.due_at) < now && m.status === "open") overdueCount++;

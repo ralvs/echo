@@ -88,9 +88,7 @@ export function registerGetThoughtContext(server: McpServer) {
 				let depth2Relations: typeof relations = [];
 				if (clampedDepth === 2 && relatedIds.size > 0) {
 					const ids = [...relatedIds];
-					const orFilter = ids
-						.map((id) => `source_id.eq.${id},target_id.eq.${id}`)
-						.join(",");
+					const orFilter = ids.map((id) => `source_id.eq.${id},target_id.eq.${id}`).join(",");
 					const { data: d2 } = await supabase
 						.from("thought_relations")
 						.select("relation_type, confidence, is_latest, source_id, target_id")
@@ -98,10 +96,8 @@ export function registerGetThoughtContext(server: McpServer) {
 					if (d2) {
 						depth2Relations = d2;
 						for (const rel of d2) {
-							if (rel.source_id !== thought_id)
-								relatedIds.add(rel.source_id);
-							if (rel.target_id !== thought_id)
-								relatedIds.add(rel.target_id);
+							if (rel.source_id !== thought_id) relatedIds.add(rel.source_id);
+							if (rel.target_id !== thought_id) relatedIds.add(rel.target_id);
 						}
 					}
 				}
@@ -153,11 +149,7 @@ export function registerGetThoughtContext(server: McpServer) {
 					parts.push("", `Extended relations (depth 2, ${depth2Relations.length}):`);
 					for (const rel of depth2Relations) {
 						// Skip relations already shown at depth 1
-						if (
-							rel.source_id === thought_id ||
-							rel.target_id === thought_id
-						)
-							continue;
+						if (rel.source_id === thought_id || rel.target_id === thought_id) continue;
 						const source = thoughtMap[rel.source_id];
 						const target = thoughtMap[rel.target_id];
 						const srcPreview = source
@@ -166,9 +158,7 @@ export function registerGetThoughtContext(server: McpServer) {
 						const tgtPreview = target
 							? target.content.substring(0, 60)
 							: rel.target_id.substring(0, 8);
-						parts.push(
-							`  ${srcPreview}... → ${rel.relation_type} → ${tgtPreview}...`,
-						);
+						parts.push(`  ${srcPreview}... → ${rel.relation_type} → ${tgtPreview}...`);
 					}
 				}
 
