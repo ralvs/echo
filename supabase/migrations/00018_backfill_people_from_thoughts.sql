@@ -6,19 +6,15 @@
 -- (e.g. "my daughter is called Bella"), at which point the capture pipeline
 -- upserts them as aliases and runs the embedding backfill.
 --
--- For each proper name, if any thought's relationship metadata maps that name to
--- a role (e.g. {"Bella": "daughter"}), that role is used and also added as an
--- alias so future captures that mention "daughter" resolve to "Bella".
+-- Aliases are intentionally NOT pre-populated here. If we seeded aliases from
+-- existing relationship metadata, upsertPerson() would find them already present
+-- and skip the embedding backfill — leaving old thoughts unrewritten. Aliases are
+-- assigned exclusively through the capture pipeline so backfill always runs.
 
-INSERT INTO people (canonical_name, role, aliases)
+INSERT INTO people (canonical_name, role)
 SELECT
   person,
-  COALESCE(found_role, 'contact'),
-  CASE
-    WHEN found_role IS NOT NULL AND found_role != ''
-      THEN ARRAY[lower(found_role)]
-    ELSE '{}'::text[]
-  END
+  COALESCE(found_role, 'contact')
 FROM (
   SELECT DISTINCT
     person,
