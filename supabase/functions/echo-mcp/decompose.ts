@@ -1,5 +1,6 @@
 import { buildEmbeddingText, decomposeWithLLM, extractMetadata, getEmbedding } from "./ai.ts";
 import { DECOMPOSE_MIN_TOKENS, supabase } from "./config.ts";
+import type { PersonDefinition, PersonRecord } from "./people.ts";
 
 export function estimateTokens(text: string): number {
 	return Math.ceil(text.length / 4);
@@ -32,15 +33,17 @@ export type SavedThought = {
 	category: string | null;
 	embedding: number[];
 	created_at: string;
+	personDefinitions: PersonDefinition[];
 };
 
 export async function saveSingleThought(
 	text: string,
 	overrides: Record<string, unknown>,
+	knownPeople: PersonRecord[] = [],
 ): Promise<SavedThought> {
-	const extracted = await extractMetadata(text);
+	const extracted = await extractMetadata(text, knownPeople);
 
-	// Destructure column fields — no manual delete needed
+	// Destructure column fields and person_definitions — not stored in metadata JSONB
 	const {
 		category: extractedCategory,
 		expires_at: extractedExpiresAt,
@@ -48,6 +51,7 @@ export async function saveSingleThought(
 		due_at: extractedDueAt,
 		recurrence: extractedRecurrence,
 		priority: extractedPriority,
+		person_definitions: extractedPersonDefinitions,
 		...metadataFields
 	} = extracted;
 
@@ -114,5 +118,6 @@ export async function saveSingleThought(
 		category: row.category as string | null,
 		embedding,
 		created_at: inserted.created_at as string,
+		personDefinitions: extractedPersonDefinitions,
 	};
 }

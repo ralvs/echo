@@ -3,6 +3,7 @@ import { z } from "zod";
 import { runPostCapturePipeline } from "../capture-pipeline.ts";
 import { DECOMPOSE_ENABLED, PRIORITY_LABELS, supabase } from "../config.ts";
 import { decompose, saveSingleThought } from "../decompose.ts";
+import { getKnownPeople } from "../people.ts";
 
 async function insertSourceRelations(thoughtId: string, sourceIds: string[]): Promise<void> {
 	for (const sourceId of sourceIds) {
@@ -155,6 +156,8 @@ export function registerCaptureThought(server: McpServer) {
 					source_kind,
 				};
 
+				const knownPeople = await getKnownPeople();
+
 				// Decomposition policy: single interface hides heuristic + LLM fallback
 				const atomicThoughts = await decompose(text, DECOMPOSE_ENABLED);
 
@@ -166,7 +169,8 @@ export function registerCaptureThought(server: McpServer) {
 						category: savedCategory,
 						embedding,
 						created_at,
-					} = await saveSingleThought(text, overrides);
+						personDefinitions,
+					} = await saveSingleThought(text, overrides, knownPeople);
 
 					if (source_ids?.length) await insertSourceRelations(id, source_ids);
 
@@ -178,6 +182,8 @@ export function registerCaptureThought(server: McpServer) {
 						created_at,
 						topics,
 						metadata.memory_type as string | undefined,
+						undefined,
+						personDefinitions,
 					);
 
 					let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${id})`;
@@ -196,22 +202,26 @@ export function registerCaptureThought(server: McpServer) {
 				}
 
 				// Decomposed path: save parent bundle + atomic children
-				const parent = await saveSingleThought(text, {
-					...overrides,
-					type: overrides.type || "log",
-					is_bundle: true,
-				});
+				const parent = await saveSingleThought(
+					text,
+					{ ...overrides, type: overrides.type || "log", is_bundle: true },
+					knownPeople,
+				);
 
 				const children: { id: string; topic: string }[] = [];
 				const allRelations: string[] = [];
 
 				for (const item of atomicThoughts) {
-					const child = await saveSingleThought(item.content, {
-						type: item.type,
-						topics: [item.topic],
-						category: overrides.category,
-						parent_id: parent.id,
-					});
+					const child = await saveSingleThought(
+						item.content,
+						{
+							type: item.type,
+							topics: [item.topic],
+							category: overrides.category,
+							parent_id: parent.id,
+						},
+						knownPeople,
+					);
 					children.push({ id: child.id, topic: item.topic });
 
 					if (source_ids?.length) await insertSourceRelations(child.id, source_ids);
@@ -224,6 +234,7 @@ export function registerCaptureThought(server: McpServer) {
 						[item.topic],
 						child.metadata.memory_type as string | undefined,
 						parent.id,
+						child.personDefinitions,
 					);
 					allRelations.push(...relations);
 				}

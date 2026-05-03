@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AI_GATEWAY_API_KEY, AI_GATEWAY_BASE } from "./config.ts";
+import type { PersonRecord } from "./people.ts";
 
 const ExtractionSchema = z.object({
 	people: z.array(z.string()).default([]),
@@ -29,6 +30,9 @@ const ExtractionSchema = z.object({
 	priority: z.number().min(0).max(4).default(0),
 	expires_at: z.string().nullable().default(null),
 	event_at: z.string().nullable().default(null),
+	person_definitions: z
+		.array(z.object({ canonical_name: z.string(), role: z.string() }))
+		.default([]),
 });
 
 export type ExtractedMetadata = z.infer<typeof ExtractionSchema>;
@@ -54,14 +58,24 @@ const FALLBACK: ExtractedMetadata = {
 	priority: 0,
 	expires_at: null,
 	event_at: null,
+	person_definitions: [],
 };
 
-function getExtractionPrompt(): string {
+function getExtractionPrompt(knownPeople: PersonRecord[] = []): string {
 	const now = new Date().toISOString();
+	const knownSection =
+		knownPeople.length > 0
+			? `Known people — when you see these roles or names, always use the canonical name:\n${knownPeople
+					.map((p) => {
+						const refs = [p.role, ...p.aliases].filter(Boolean);
+						return `- ${p.canonical_name} (${refs.join(", ")})`;
+					})
+					.join("\n")}\n\n`
+			: "";
 	return `Current date and time is ${now}. Use this to resolve relative dates and times (e.g. "next Monday", "tomorrow", "in 2 hours", "this afternoon") into absolute datetimes.
 
-Extract metadata from the user's captured thought. Return JSON with:
-- "people": array of people mentioned (empty if none)
+${knownSection}Extract metadata from the user's captured thought. Return JSON with:
+- "people": array of people mentioned — use canonical names when known (empty if none)
 - "action_items": array of implied to-dos (empty if none)
 - "dates_mentioned": array of dates YYYY-MM-DD (empty if none)
 - "topics": array of 1-3 short topic tags (always at least one)
@@ -82,6 +96,7 @@ Extract metadata from the user's captured thought. Return JSON with:
 - "expires_at": ISO 8601 datetime if the thought is inherently time-limited and becomes irrelevant after a specific moment (e.g. "dentist appointment next Monday" → that Monday). null if the thought retains value indefinitely.
 - "event_at": ISO 8601 datetime of when the described event actually occurred or will occur, if different from right now. null if the thought describes the present moment or has no specific temporal anchor beyond now.
 - "relationship": if people are mentioned and their relationship to the user is inferable, return an object mapping each person's name to their role (e.g. {"Sarah": "colleague", "Dr. Chen": "dentist", "Mom": "family"}). null if no people or roles are clear.
+- "person_definitions": if this thought explicitly states who someone is (e.g. "my mother-in-law is called Andrea", "John is my brother"), list each as {"canonical_name": "Andrea", "role": "mother-in-law"}. Empty array otherwise.
 - "project": the name of a specific named project this thought belongs to, if clearly referenced (e.g. "Echo", "website redesign"). null if no named project.
 - "organization": the name of a company or institution mentioned (e.g. "Anthropic", "Mayo Clinic"). null if none.
 - "sentiment": overall sentiment of the thought toward its subject — "positive", "negative", or "neutral". null if purely informational with no discernible sentiment.
@@ -96,7 +111,7 @@ Return ONLY valid JSON, no markdown fences or extra text.`;
  */
 export function buildEmbeddingText(
 	content: string,
-	metadata: { topics?: unknown; type?: string },
+	metadata: { topics?: unknown; type?: string; people?: unknown },
 	category: string | null,
 ): string {
 	const parts = [content];
@@ -105,6 +120,8 @@ export function buildEmbeddingText(
 	if (category) parts.push(`Category: ${category}`);
 	// Only append type when it adds signal — "observation" is the generic default
 	if (metadata.type && metadata.type !== "observation") parts.push(`Type: ${metadata.type}`);
+	const people = Array.isArray(metadata.people) ? (metadata.people as string[]) : [];
+	if (people.length) parts.push(`People: ${people.join(", ")}`);
 	return parts.join("\n\n");
 }
 
@@ -128,7 +145,10 @@ export async function getEmbedding(text: string): Promise<number[]> {
 	return d.data[0].embedding;
 }
 
-export async function extractMetadata(text: string): Promise<ExtractedMetadata> {
+export async function extractMetadata(
+	text: string,
+	knownPeople: PersonRecord[] = [],
+): Promise<ExtractedMetadata> {
 	const r = await fetch(`${AI_GATEWAY_BASE}/chat/completions`, {
 		method: "POST",
 		headers: {
@@ -140,7 +160,7 @@ export async function extractMetadata(text: string): Promise<ExtractedMetadata> 
 			max_tokens: 1024,
 			response_format: { type: "json_object" },
 			messages: [
-				{ role: "system", content: getExtractionPrompt() },
+				{ role: "system", content: getExtractionPrompt(knownPeople) },
 				{ role: "user", content: text },
 			],
 		}),

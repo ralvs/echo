@@ -1,5 +1,7 @@
 import { classifyRelation, getEmbedding } from "./ai.ts";
 import { supabase } from "./config.ts";
+import type { PersonDefinition } from "./people.ts";
+import { backfillPersonAlias, upsertPerson } from "./people.ts";
 import { updateTopicPagesForThought } from "./topic-pages.ts";
 
 export type PostCaptureSideEffects = {
@@ -58,7 +60,7 @@ async function detectRelations(
 
 			const preview =
 				candidate.content.length > 60
-					? candidate.content.substring(0, 60) + "..."
+					? `${candidate.content.substring(0, 60)}...`
 					: candidate.content;
 			summaries.push(`${result.relation} "${preview}" (${(result.confidence * 100).toFixed(0)}%)`);
 		}
@@ -83,6 +85,7 @@ export async function runPostCapturePipeline(
 	topics: string[],
 	memoryType?: string,
 	parentId?: string,
+	personDefinitions?: PersonDefinition[],
 ): Promise<PostCaptureSideEffects> {
 	const relations = await detectRelations(thoughtId, content, parentId);
 
@@ -91,6 +94,24 @@ export async function runPostCapturePipeline(
 		updateTopicPagesForThought(thoughtId, content, embedding, createdAt, topics, memoryType).catch(
 			(e) => console.error("Topic page update error:", e),
 		);
+	}
+
+	if (personDefinitions?.length) {
+		// Fire-and-forget: upsert each defined person then backfill old thoughts for new aliases
+		(async () => {
+			for (const def of personDefinitions) {
+				try {
+					const { newAliases } = await upsertPerson(def.canonical_name, def.role);
+					for (const alias of newAliases) {
+						backfillPersonAlias(alias, def.canonical_name).catch((e) =>
+							console.error(`Backfill failed for alias "${alias}":`, e),
+						);
+					}
+				} catch (e) {
+					console.error(`Person upsert failed for "${def.canonical_name}":`, e);
+				}
+			}
+		})().catch((e) => console.error("Person pipeline error:", e));
 	}
 
 	return { relations, topicPageScheduled };
