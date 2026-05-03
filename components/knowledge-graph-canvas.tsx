@@ -3,23 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import type { GraphLink, GraphNode } from "@/app/api/graph/route";
-
-export const TYPE_COLORS: Record<string, string> = {
-	observation: "#5a8fa8",
-	task: "#c49a3c",
-	idea: "#d4a052",
-	reference: "#9a9589",
-	person_note: "#5b9a6b",
-};
-
-const DEFAULT_COLOR = "#6b665c";
-
-const LINK_COLORS: Record<string, string> = {
-	updates: "#d4a052",
-	extends: "#9a7339",
-	derives: "#5a8fa8",
-	related: "rgba(154, 149, 137, 0.22)",
-};
+import { DEFAULT_NODE_COLOR as DEFAULT_COLOR, LINK_COLORS, TYPE_COLORS } from "@/lib/graph-colors";
 
 type InternalNode = GraphNode & {
 	x?: number;
@@ -176,9 +160,7 @@ export function KnowledgeGraphCanvas({
 	useEffect(() => {
 		if (!centerNodeId || !graphRef.current) return;
 		const t = setTimeout(() => {
-			const n = enrichedNodes.find((node) => node.id === centerNodeId) as
-				| InternalNode
-				| undefined;
+			const n = enrichedNodes.find((node) => node.id === centerNodeId) as InternalNode | undefined;
 			if (n?.x !== undefined && n.y !== undefined) {
 				graphRef.current.centerAt(n.x, n.y, 600);
 				graphRef.current.zoom(3.5, 600);

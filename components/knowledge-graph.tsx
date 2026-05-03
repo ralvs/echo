@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { GraphData, GraphLink, GraphNode } from "@/app/api/graph/route";
-import { TYPE_COLORS } from "@/components/knowledge-graph-canvas";
+import { TYPE_COLORS } from "@/lib/graph-colors";
 
 const KnowledgeGraphCanvas = dynamic(
 	() =>
