@@ -65,10 +65,10 @@ function getExtractionPrompt(knownPeople: PersonRecord[] = []): string {
 	const now = new Date().toISOString();
 	const knownSection =
 		knownPeople.length > 0
-			? `Known people — when you see these roles or names, always use the canonical name:\n${knownPeople
+			? `Known people — resolve any mention of these roles or relationship terms to the canonical name. Include the canonical name in "people" even when the thought only uses the role (e.g. "my mother-in-law gave us..." → people: ["Andrea"]):\n${knownPeople
 					.map((p) => {
-						const refs = [p.role, ...p.aliases].filter(Boolean);
-						return `- ${p.canonical_name} (${refs.join(", ")})`;
+						const refs = [...new Set([p.role, ...p.aliases])].filter(Boolean);
+						return `- ${p.canonical_name}: referred to as ${refs.join(", ")}`;
 					})
 					.join("\n")}\n\n`
 			: "";
