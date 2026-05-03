@@ -1,5 +1,8 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.4.7/schema.json",
+	"files": {
+		"includes": ["**", "!.next", "!node_modules"]
+	},
 	"assist": {
 		"actions": {
 			"source": {
@@ -15,5 +18,16 @@
 		"enabled": true,
 		"indentStyle": "tab",
 		"lineWidth": 100
+	},
+	"css": {
+		"parser": {
+			"cssModules": false
+		},
+		"formatter": {
+			"enabled": false
+		},
+		"linter": {
+			"enabled": false
+		}
 	}
 }

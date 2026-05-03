@@ -3,6 +3,8 @@
 import { DateTime } from "luxon";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
+import type { GraphData } from "@/app/api/graph/route";
+import { KnowledgeGraph } from "@/components/knowledge-graph";
 import { StatCard } from "@/components/stat-card";
 import { TopicPill } from "@/components/topic-pill";
 import type { Thought, ThoughtStats } from "@/lib/types";
@@ -19,6 +21,7 @@ function sortEntries(obj: Record<string, number>) {
 export default function DashboardPage() {
 	const [stats, setStats] = useState<ThoughtStats | null>(null);
 	const [recent, setRecent] = useState<Thought[]>([]);
+	const [graph, setGraph] = useState<GraphData>({ nodes: [], links: [] });
 	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
@@ -29,9 +32,13 @@ export default function DashboardPage() {
 			fetch(`/api/thoughts?limit=${RECENT_THOUGHTS_LIMIT}`)
 				.then((r) => r.json())
 				.catch(() => []),
-		]).then(([statsData, recentData]) => {
+			fetch("/api/graph")
+				.then((r) => r.json())
+				.catch(() => ({ nodes: [], links: [] })),
+		]).then(([statsData, recentData, graphData]) => {
 			setStats(statsData);
 			setRecent(Array.isArray(recentData) ? recentData : []);
+			setGraph(graphData);
 			setLoading(false);
 		});
 	}, []);
@@ -219,6 +226,24 @@ export default function DashboardPage() {
 						</a>
 					))}
 				</div>
+			</motion.div>
+
+			{/* Knowledge graph */}
+			<motion.div
+				initial={{ opacity: 0, y: 12 }}
+				animate={{ opacity: 1, y: 0 }}
+				transition={{ duration: 0.5, delay: 0.5 }}
+				className="mt-8 bg-surface-2 border border-border-subtle rounded-[var(--radius-md)] overflow-hidden"
+			>
+				<div className="px-5 pt-5 pb-4 flex items-center justify-between">
+					<h2 className="text-[11px] font-mono text-text-tertiary tracking-wider uppercase">
+						Knowledge Graph
+					</h2>
+					<span className="text-[10px] font-mono text-text-tertiary/50">
+						pinch or scroll to zoom · click a node to open
+					</span>
+				</div>
+				<KnowledgeGraph nodes={graph.nodes} links={graph.links} />
 			</motion.div>
 		</div>
 	);
