@@ -24,7 +24,7 @@ export function registerGetProfile(server: McpServer) {
 				const { data: staticThoughts, error: staticErr } = await supabase
 					.from("thoughts")
 					.select("content, metadata")
-					.or("metadata->memory_type.eq.fact,metadata->memory_type.eq.preference")
+					.or("metadata->>memory_type.eq.fact,metadata->>memory_type.eq.preference")
 					.or("is_bundle.is.null,is_bundle.eq.false")
 					.order("created_at", { ascending: false })
 					.limit(100);
@@ -35,7 +35,7 @@ export function registerGetProfile(server: McpServer) {
 				const { data: dynamicThoughts, error: dynamicErr } = await supabase
 					.from("thoughts")
 					.select("content, metadata, due_at, priority")
-					.or("metadata->memory_type.eq.episodic,metadata->status.eq.open")
+					.or("metadata->>memory_type.eq.episodic,metadata->>status.eq.open")
 					.or("is_bundle.is.null,is_bundle.eq.false")
 					.order("created_at", { ascending: false })
 					.limit(50);
