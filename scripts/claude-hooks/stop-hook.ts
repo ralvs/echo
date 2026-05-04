@@ -21,6 +21,7 @@ type StopHookPayload = {
 	hook_event_name?: string;
 	stop_hook_active?: boolean;
 	cwd?: string;
+	cursor_version?: string;
 };
 
 const ECHO_API_URL = process.env.ECHO_API_URL ?? "http://localhost:3000";
@@ -62,6 +63,11 @@ async function main() {
 		payload = JSON.parse(stdinText) as StopHookPayload;
 	} catch (err) {
 		console.error(`[echo-stop-hook] invalid JSON payload: ${(err as Error).message}`);
+		return;
+	}
+
+	if (payload.cursor_version) {
+		// Running inside Cursor — skip, this hook is Claude Code only.
 		return;
 	}
 
