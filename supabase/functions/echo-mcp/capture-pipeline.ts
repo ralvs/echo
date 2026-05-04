@@ -9,7 +9,7 @@ export type PostCaptureSideEffects = {
 	topicPageScheduled: boolean;
 };
 
-async function detectRelations(
+export async function detectRelations(
 	thoughtId: string,
 	content: string,
 	parentId?: string,
