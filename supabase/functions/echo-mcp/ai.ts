@@ -200,20 +200,18 @@ export async function classifyRelation(
 			body: JSON.stringify({
 				model: "anthropic/claude-haiku-4-5",
 				max_tokens: 256,
-				response_format: { type: "json_object" },
 				messages: [
 					{
 						role: "system",
 						content: `Classify the relationship between two thoughts from a personal knowledge base.
+You MUST pick exactly one of these relation values: updates, extends, derives, related, unrelated.
+- updates: new contradicts/replaces old
+- extends: new adds detail to old without replacing
+- derives: new is a logical consequence of old
+- related: topically linked but independent
+- unrelated: no meaningful link
 
-Relationship types:
-- "updates": New thought contradicts or replaces the old (e.g. corrected phone number, changed preference)
-- "extends": New thought adds detail without replacing (e.g. follow-up note on same topic)
-- "derives": New thought is a logical consequence of the old (e.g. decision made based on earlier research)
-- "related": Topically connected but independent
-- "unrelated": No meaningful relationship despite surface similarity
-
-Return ONLY valid JSON: {"relation": "<type>", "confidence": <0.0-1.0>}`,
+Respond with ONLY a raw JSON object (no markdown): {"relation":"<value>","confidence":<0.0-1.0>}`,
 					},
 					{
 						role: "user",
@@ -227,11 +225,14 @@ Return ONLY valid JSON: {"relation": "<type>", "confidence": <0.0-1.0>}`,
 
 		const d = await r.json();
 		const raw = d.choices[0].message.content as string;
-		const clean = raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
-		const parsed = JSON.parse(clean);
+		const jsonMatch = raw.match(/\{[^{}]*\}/);
+		if (!jsonMatch) return null;
+		const parsed = JSON.parse(jsonMatch[0]);
 
 		if (!parsed.relation || typeof parsed.confidence !== "number") return null;
 		if (parsed.confidence < 0.5) return null;
+		const validTypes = ["updates", "extends", "derives", "related", "unrelated"] as const;
+		if (!validTypes.includes(parsed.relation)) return null;
 
 		return parsed;
 	} catch {
