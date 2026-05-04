@@ -19,8 +19,8 @@ async function detectRelations(
 		const { data: matches } = await supabase.rpc("hybrid_search", {
 			query_text: content,
 			query_embedding: embedding,
-			match_threshold: 0.8,
-			match_count: 4,
+			match_threshold: 0.65,
+			match_count: 5,
 			alpha: 0.7,
 			filter: {},
 		});

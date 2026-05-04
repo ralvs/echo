@@ -60,24 +60,24 @@ export function KnowledgeGraphCanvas({
 			const x = node.x ?? 0;
 			const y = node.y ?? 0;
 			const degree = node.__degree;
-			const r = Math.max(2.5, Math.min(7, 2.5 + degree * 0.9));
+			const r = Math.max(5, Math.min(14, 5 + degree * 1.4));
 			const color = TYPE_COLORS[node.type ?? ""] ?? DEFAULT_COLOR;
 			const isCenter = node.id === centerNodeId;
 
 			if (isCenter) {
 				ctx.beginPath();
-				ctx.arc(x, y, r + 9, 0, 2 * Math.PI);
+				ctx.arc(x, y, r + 11, 0, 2 * Math.PI);
 				ctx.fillStyle = `${color}0d`;
 				ctx.fill();
 				ctx.beginPath();
-				ctx.arc(x, y, r + 5, 0, 2 * Math.PI);
+				ctx.arc(x, y, r + 6, 0, 2 * Math.PI);
 				ctx.fillStyle = `${color}22`;
 				ctx.fill();
 			}
 
 			// Outer glow
 			ctx.beginPath();
-			ctx.arc(x, y, r + 2.5, 0, 2 * Math.PI);
+			ctx.arc(x, y, r + 3, 0, 2 * Math.PI);
 			ctx.fillStyle = `${color}1a`;
 			ctx.fill();
 
@@ -93,20 +93,21 @@ export function KnowledgeGraphCanvas({
 			ctx.fillStyle = "rgba(255,255,255,0.10)";
 			ctx.fill();
 
-			// Label — only at high zoom
-			if (globalScale > 2.2) {
-				const label = node.label.length > 38 ? `${node.label.slice(0, 38)}…` : node.label;
-				const pxSize = 8;
-				const fontSize = pxSize / globalScale;
+			// Label — always visible, length scales with zoom
+			{
+				const maxLen = globalScale > 2 ? 38 : globalScale > 1.2 ? 24 : 16;
+				const label = node.label.length > maxLen ? `${node.label.slice(0, maxLen)}…` : node.label;
+				const targetPx = 9;
+				const fontSize = Math.max(targetPx / globalScale, 3.5);
 				ctx.font = `${fontSize}px "Overpass Mono", monospace`;
 				const tw = ctx.measureText(label).width;
-				const pad = 2 / globalScale;
+				const pad = 2.5 / globalScale;
 				const bx = x - tw / 2 - pad;
-				const by = y + r + 3 / globalScale;
+				const by = y + r + 4 / globalScale;
 				const bh = fontSize + pad * 2;
-				ctx.fillStyle = "rgba(12,11,10,0.82)";
+				ctx.fillStyle = "rgba(12,11,10,0.80)";
 				ctx.fillRect(bx, by, tw + pad * 2, bh);
-				ctx.fillStyle = "rgba(232,228,222,0.72)";
+				ctx.fillStyle = "rgba(232,228,222,0.80)";
 				ctx.textAlign = "center";
 				ctx.textBaseline = "top";
 				ctx.fillText(label, x, by + pad);
@@ -121,7 +122,7 @@ export function KnowledgeGraphCanvas({
 			const node = rawNode as InternalNode;
 			const x = node.x ?? 0;
 			const y = node.y ?? 0;
-			const r = Math.max(2.5, Math.min(7, 2.5 + node.__degree * 0.9)) + 3;
+			const r = Math.max(5, Math.min(14, 5 + node.__degree * 1.4)) + 4;
 			ctx.beginPath();
 			ctx.arc(x, y, r, 0, 2 * Math.PI);
 			ctx.fillStyle = color;
