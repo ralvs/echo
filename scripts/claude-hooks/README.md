@@ -7,9 +7,37 @@ Two hooks turn Echo into a passive memory layer for Claude Code:
 
 Both hooks **fail silently** — any error logs to stderr and exits 0 so they never block your session.
 
+## Why hooks must `cd` to the echo project root
+
+Both hooks call the Vercel AI Gateway, which requires `AI_GATEWAY_API_KEY`. That key lives in `.env.local` in this repo. Bun loads `.env.local` from the **current working directory** — which is the CWD of the Claude Code session, not the script directory. Sessions in any other project would run without the key and fail silently.
+
+The fix: prefix every hook command with `cd /path/to/echo &&` so Bun always loads the right `.env.local`.
+
+## Scope: what these hooks cover
+
+| Session type | Hooks fire? | Notes |
+|---|---|---|
+| Claude Code CLI (any project) | ✅ Yes | Stop + PreCompact both work |
+| Claude Desktop — agent mode | ✅ Yes | Same Claude Code binary, same JSONL transcripts |
+| Claude Desktop — regular chat | ❌ No | No local transcript; no hook possible |
+
+For regular Desktop chat, use `/echo-capture` at the end of a conversation: Claude will review the full conversation and call `capture_thought` via the Echo MCP for anything worth keeping.
+
+## Catch-up script
+
+`catch-up.ts` is a safety net that processes all transcripts modified in the last N hours:
+
+```bash
+# From the echo project root:
+bun run scripts/claude-hooks/catch-up.ts --hours 48
+bun run scripts/claude-hooks/catch-up.ts --file ~/.claude/projects/.../session.jsonl
+```
+
+Echo deduplicates by `source_id`, so re-running is always safe.
+
 ## Install
 
-Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). The `command` paths must be absolute.
+Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). Note the `cd` prefix — it is required.
 
 ```jsonc
 {
@@ -20,7 +48,7 @@ Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). The `comm
         "hooks": [
           {
             "type": "command",
-            "command": "bun run /Volumes/stuff/renan/echo/scripts/claude-hooks/stop-hook.ts",
+            "command": "cd /Volumes/stuff/renan/echo && bun run scripts/claude-hooks/stop-hook.ts",
             "timeout": 30
           }
         ]
@@ -32,7 +60,7 @@ Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). The `comm
         "hooks": [
           {
             "type": "command",
-            "command": "bun run /Volumes/stuff/renan/echo/scripts/claude-hooks/pre-compact-hook.ts",
+            "command": "cd /Volumes/stuff/renan/echo && bun run scripts/claude-hooks/pre-compact-hook.ts",
             "timeout": 60
           }
         ]
@@ -44,15 +72,7 @@ Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). The `comm
 
 ## Required env
 
-The hooks call the Vercel AI Gateway (Haiku) and the local Echo API. Set these in your shell profile (or pass through Claude Code's hook env):
-
-```bash
-# AI Gateway key — same one Echo's existing extractor uses.
-export AI_GATEWAY_API_KEY=...
-
-# Where the Next.js dev/prod server is running.
-export ECHO_API_URL=http://localhost:3000
-```
+`AI_GATEWAY_API_KEY` and `ECHO_API_URL` are loaded automatically from `.env.local` in the echo project root when hooks use the `cd /path/to/echo &&` prefix. No shell profile changes needed.
 
 ## What the gate captures (and skips)
 
