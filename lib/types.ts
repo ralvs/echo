@@ -29,6 +29,7 @@ export type ThoughtMetadata = {
 	relationship?: Record<string, string>;
 	project?: string;
 	organization?: string;
+	tools?: string[];
 	sentiment?: "positive" | "negative" | "neutral";
 	[key: string]: unknown;
 };
@@ -103,6 +104,35 @@ export type TopicPage = {
 	thought_ids: string[];
 	thought_count: number;
 	metadata: Record<string, unknown>;
+	created_at: string;
+	updated_at: string;
+};
+
+export type EntityType = "person" | "project" | "organization" | "tool" | "place";
+
+export type Entity = {
+	id: string;
+	type: EntityType;
+	canonical_name: string;
+	aliases: string[];
+	description: string | null;
+	mention_count: number;
+	metadata: Record<string, unknown>;
+	created_at: string;
+	updated_at: string;
+};
+
+export type RelatedEntity = { name: string; type: EntityType; weight: number };
+
+export type EntityPage = {
+	id: string;
+	entity_id: string;
+	title: string;
+	entity_type: EntityType;
+	summary: string;
+	thought_ids: string[];
+	thought_count: number;
+	related: RelatedEntity[];
 	created_at: string;
 	updated_at: string;
 };

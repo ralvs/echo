@@ -184,6 +184,7 @@ export function registerCaptureThought(server: McpServer) {
 						metadata.memory_type as string | undefined,
 						undefined,
 						personDefinitions,
+						metadata,
 					);
 
 					let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${id})`;
@@ -235,6 +236,7 @@ export function registerCaptureThought(server: McpServer) {
 						child.metadata.memory_type as string | undefined,
 						parent.id,
 						child.personDefinitions,
+						child.metadata,
 					);
 					allRelations.push(...relations);
 				}

@@ -16,6 +16,7 @@ const ExtractionSchema = z.object({
 	relationship: z.record(z.string(), z.string()).nullable().default(null),
 	project: z.string().nullable().default(null),
 	organization: z.string().nullable().default(null),
+	tools: z.array(z.string()).default([]),
 	sentiment: z.enum(["positive", "negative", "neutral"]).nullable().default(null),
 	// Real DB columns — separated here so callers destructure rather than delete
 	category: z.string().nullable().default(null),
@@ -52,6 +53,7 @@ const FALLBACK: ExtractedMetadata = {
 	project: null,
 	organization: null,
 	sentiment: null,
+	tools: [],
 	category: null,
 	due_at: null,
 	recurrence: null,
@@ -99,6 +101,7 @@ ${knownSection}Extract metadata from the user's captured thought. Return JSON wi
 - "person_definitions": if this thought explicitly states who someone is (e.g. "my mother-in-law is called Andrea", "John is my brother"), list each as {"canonical_name": "Andrea", "role": "mother-in-law"}. Empty array otherwise.
 - "project": the name of a specific named project this thought belongs to, if clearly referenced (e.g. "Echo", "website redesign"). null if no named project.
 - "organization": the name of a company or institution mentioned (e.g. "Anthropic", "Mayo Clinic"). null if none.
+- "tools": array of named tools, products, software, or services mentioned (e.g. "Supabase", "Next.js", "Figma", "DeWalt drill"). Empty array if none.
 - "sentiment": overall sentiment of the thought toward its subject — "positive", "negative", or "neutral". null if purely informational with no discernible sentiment.
 Only extract what's explicitly there. Do not infer or fabricate. Resolve relative dates using today's date.
 Return ONLY valid JSON, no markdown fences or extra text.`;
@@ -293,6 +296,65 @@ Rules:
 		return (d.choices[0].message.content as string).trim();
 	} catch {
 		return existingSummary ?? `# ${title}\n\n*(compilation failed)*`;
+	}
+}
+
+/**
+ * Compiles a graph-backed entity wiki page. Unlike topic pages, the prompt is
+ * given the entity's typed identity and its related entities (from co-occurrence
+ * edges) so the summary can describe the entity's place in the wider graph.
+ * Always a full recompile from the supplied thoughts (entity thought sets are
+ * small), so existingSummary is intentionally not threaded through.
+ */
+export async function compileEntityPage(
+	name: string,
+	entityType: string,
+	thoughts: { content: string; created_at: string }[],
+	related: { name: string; type: string; weight: number }[],
+): Promise<string> {
+	const thoughtsText = thoughts
+		.map((t, i) => `[${i + 1}] (${new Date(t.created_at).toLocaleDateString()}) ${t.content}`)
+		.join("\n\n");
+
+	const relatedText = related.length
+		? related.map((r) => `- ${r.name} (${r.type}, co-mentioned ${r.weight}×)`).join("\n")
+		: "(none)";
+
+	const systemPrompt = `You are compiling a personal knowledge wiki page about a single ${entityType} named "${name}".
+Given everything captured that mentions this ${entityType}, plus the entities it most often co-occurs with, produce a structured markdown summary.
+
+Rules:
+- Lead with what this ${entityType} is and the user's relationship to it
+- Organize details under headers; bold key facts, dates, and values
+- Note open questions, tasks, or recent changes if present
+- End with a short "Related" section referencing the co-occurring entities that matter, in prose (omit if none are meaningful)
+- Only use information explicitly present — do not infer or fabricate
+- Do NOT add preamble; return ONLY the markdown content`;
+
+	const userContent = `${entityType}: ${name}\n\nCo-occurring entities:\n${relatedText}\n\nCaptured thoughts:\n\n${thoughtsText}`;
+
+	try {
+		const r = await fetch(`${AI_GATEWAY_BASE}/chat/completions`, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${AI_GATEWAY_API_KEY}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "anthropic/claude-haiku-4-5",
+				max_tokens: 2048,
+				messages: [
+					{ role: "system", content: systemPrompt },
+					{ role: "user", content: userContent },
+				],
+			}),
+		});
+
+		if (!r.ok) return `# ${name}\n\n*(compilation failed)*`;
+		const d = await r.json();
+		return (d.choices[0].message.content as string).trim();
+	} catch {
+		return `# ${name}\n\n*(compilation failed)*`;
 	}
 }
 
