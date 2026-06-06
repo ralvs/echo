@@ -125,7 +125,7 @@ While `thought_relations` links thoughts to thoughts, the entity graph links tho
 - **`thought_entities`** — evidence links (which thought mentions which entity)
 - **`entity_edges`** — undirected co-occurrence edges with a weight (entities mentioned together)
 
-Person nodes stay consistent with the curated `people` table because `metadata.people` is already resolved to canonical names during extraction. The projection runs fire-and-forget after capture; `backfill-entities.ts` populates the graph from existing thoughts (API-free).
+People are not a separate table — they're `entities` rows with `type = 'person'`, carrying their relationship role on `metadata.role`. `people.ts` is the curated-identity view over those rows (resolving "my mother-in-law" → canonical name during extraction); the graph projects the same person nodes from `metadata.people`, which is already resolved to canonical names. The projection runs fire-and-forget after capture; `backfill-entities.ts` populates the graph from existing thoughts (API-free).
 
 **Entity pages** are the entity analogue of topic pages — one LLM-compiled wiki page per entity that crosses the 3-thought threshold, stored in `entity_pages`. Pages are *generated artifacts*: each refresh is a full recompile from the entity's linked thoughts plus its strongest co-occurrence edges, so the SQL tables remain the single source of truth and pages never drift. Relevant entity pages are prepended to `search_thoughts` results alongside topic pages. Tools: `list_entities`, `get_entity`, `refresh_entity_page`.
 

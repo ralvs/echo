@@ -13,10 +13,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock("./config.ts", () => ({
 	supabase: {
 		from: vi.fn((table: string) => {
-			if (table === "people") {
+			if (table === "entities") {
 				return {
 					select: vi.fn(() => ({
-						eq: vi.fn(() => ({ maybeSingle: mocks.maybeSingle })),
+						eq: vi.fn(() => ({
+							eq: vi.fn(() => ({ maybeSingle: mocks.maybeSingle })),
+						})),
 					})),
 					insert: mocks.insert,
 					update: vi.fn(() => ({ eq: mocks.updateEq })),
@@ -52,9 +54,10 @@ describe("upsertPerson", () => {
 
 		expect(result).toEqual({ newAliases: ["mother-in-law"] });
 		expect(mocks.insert).toHaveBeenCalledWith({
+			type: "person",
 			canonical_name: "Andrea",
-			role: "mother-in-law",
 			aliases: ["mother-in-law"],
+			metadata: { role: "mother-in-law" },
 		});
 	});
 

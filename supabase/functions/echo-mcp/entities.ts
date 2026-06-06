@@ -15,7 +15,8 @@ export type EntityMention = { type: EntityType; name: string };
 /**
  * Maps a thought's metadata to a deduped list of entity mentions.
  * Person names are expected to already be resolved to canonical names by the
- * extraction prompt (via the people table), keeping person entities consistent.
+ * extraction prompt (via the person entities surfaced by people.ts), so person
+ * nodes stay consistent whether created here or through an explicit definition.
  */
 export function extractEntityMentions(metadata: Record<string, unknown>): EntityMention[] {
 	const mentions: EntityMention[] = [];

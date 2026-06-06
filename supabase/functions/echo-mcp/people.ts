@@ -1,6 +1,16 @@
 import { buildEmbeddingText, getEmbedding } from "./ai.ts";
 import { supabase } from "./config.ts";
 
+/**
+ * People are not a separate table — they are `entities` rows with type =
+ * 'person'. This module is the curated-identity view over those rows: it
+ * resolves relationship terms ("my mother-in-law") to canonical names during
+ * extraction, and keeps the role on entities.metadata.role. The broader entity
+ * graph (entities.ts) projects the same person nodes from thought metadata.
+ */
+
+const PERSON = "person";
+
 export type PersonRecord = {
 	id: string;
 	canonical_name: string;
@@ -13,15 +23,39 @@ export type PersonDefinition = {
 	role: string;
 };
 
+type EntityPersonRow = {
+	id: string;
+	canonical_name: string;
+	aliases: string[] | null;
+	metadata: Record<string, unknown> | null;
+};
+
+/**
+ * Returns the people the extractor should know about — those carrying a
+ * resolution signal (a role or aliases). Bare person nodes auto-created from
+ * mentions add nothing to alias resolution and are filtered out.
+ */
 export async function getKnownPeople(): Promise<PersonRecord[]> {
-	const { data } = await supabase.from("people").select("id, canonical_name, role, aliases");
-	return (data ?? []) as PersonRecord[];
+	const { data } = await supabase
+		.from("entities")
+		.select("id, canonical_name, aliases, metadata")
+		.eq("type", PERSON);
+
+	return ((data ?? []) as EntityPersonRow[])
+		.map((e) => ({
+			id: e.id,
+			canonical_name: e.canonical_name,
+			role: (e.metadata?.role as string) ?? "contact",
+			aliases: e.aliases ?? [],
+		}))
+		.filter((p) => p.aliases.length > 0 || p.role !== "contact");
 }
 
 /**
- * Upserts a person definition. Creates the record if new, otherwise adds the role
- * as an alias if not already present. Returns which aliases were newly registered
- * so the caller can trigger backfill for affected thoughts.
+ * Upserts a person entity. Creates the node if new, otherwise registers the
+ * role as an alias if not already present and records it on metadata.role.
+ * Returns which aliases were newly registered so the caller can trigger
+ * backfill for affected thoughts.
  */
 export async function upsertPerson(
 	canonical_name: string,
@@ -30,24 +64,35 @@ export async function upsertPerson(
 	const roleAlias = role.toLowerCase().trim();
 
 	const { data: existing } = await supabase
-		.from("people")
-		.select("id, aliases")
+		.from("entities")
+		.select("id, aliases, metadata")
+		.eq("type", PERSON)
 		.eq("canonical_name", canonical_name)
 		.maybeSingle();
 
 	if (existing) {
-		const current = existing.aliases as string[];
+		const current = (existing.aliases as string[]) ?? [];
 		if (current.includes(roleAlias)) return { newAliases: [] };
 
+		const meta = (existing.metadata as Record<string, unknown>) ?? {};
 		await supabase
-			.from("people")
-			.update({ aliases: [...current, roleAlias], updated_at: new Date().toISOString() })
+			.from("entities")
+			.update({
+				aliases: [...current, roleAlias],
+				metadata: { ...meta, role },
+				updated_at: new Date().toISOString(),
+			})
 			.eq("id", existing.id);
 
 		return { newAliases: [roleAlias] };
 	}
 
-	await supabase.from("people").insert({ canonical_name, role, aliases: [roleAlias] });
+	await supabase.from("entities").insert({
+		type: PERSON,
+		canonical_name,
+		aliases: [roleAlias],
+		metadata: { role },
+	});
 	return { newAliases: [roleAlias] };
 }
 
