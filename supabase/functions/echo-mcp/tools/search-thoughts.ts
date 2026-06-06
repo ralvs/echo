@@ -88,6 +88,35 @@ export function registerSearchThoughts(server: McpServer) {
 					// Non-blocking — search results are still returned even if preamble fails
 				}
 
+				// Fetch relevant entity pages (graph-backed) as additional preamble
+				let entityPreamble = "";
+				try {
+					const { data: pages } = await supabase.rpc("search_entity_pages", {
+						query_text: query,
+						query_embedding: qEmb,
+						match_threshold: 0.5,
+						match_count: 2,
+					});
+					if (pages?.length) {
+						entityPreamble = pages
+							.map(
+								(p: {
+									title: string;
+									entity_type: string;
+									summary: string;
+									updated_at: string;
+									thought_count: number;
+								}) =>
+									`╔═ ${`${p.entity_type[0].toUpperCase()}${p.entity_type.slice(1)}`} Page: ${p.title} (${p.thought_count} thoughts, updated ${new Date(p.updated_at).toLocaleDateString()}) ═╗\n${p.summary}\n╚══════════════════════════════════════════════════════╝`,
+							)
+							.join("\n\n");
+					}
+				} catch {
+					// Non-blocking
+				}
+
+				const preamble = [topicPreamble, entityPreamble].filter(Boolean).join("\n\n");
+
 				const results = filtered.map((t, i) => {
 					const m = t.metadata || {};
 					const parts = [
@@ -119,8 +148,8 @@ export function registerSearchThoughts(server: McpServer) {
 					return parts.join("\n");
 				});
 
-				const header = topicPreamble
-					? `${topicPreamble}\n\n--- Individual Results (${filtered.length}) ---\n\n`
+				const header = preamble
+					? `${preamble}\n\n--- Individual Results (${filtered.length}) ---\n\n`
 					: `Found ${filtered.length} thought(s):\n\n`;
 
 				return {

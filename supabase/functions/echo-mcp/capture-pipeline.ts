@@ -1,5 +1,7 @@
 import { classifyRelation, getEmbedding } from "./ai.ts";
 import { supabase } from "./config.ts";
+import { extractEntityMentions, linkThoughtEntities } from "./entities.ts";
+import { updateEntityPagesForThought } from "./entity-pages.ts";
 import type { PersonDefinition } from "./people.ts";
 import { backfillPersonAlias, upsertPerson } from "./people.ts";
 import { updateTopicPagesForThought } from "./topic-pages.ts";
@@ -86,6 +88,7 @@ export async function runPostCapturePipeline(
 	memoryType?: string,
 	parentId?: string,
 	personDefinitions?: PersonDefinition[],
+	metadata?: Record<string, unknown>,
 ): Promise<PostCaptureSideEffects> {
 	const relations = await detectRelations(thoughtId, content, parentId);
 
@@ -94,6 +97,17 @@ export async function runPostCapturePipeline(
 		updateTopicPagesForThought(thoughtId, content, embedding, createdAt, topics, memoryType).catch(
 			(e) => console.error("Topic page update error:", e),
 		);
+	}
+
+	// Fire-and-forget: project this thought's metadata into the entity graph,
+	// then refresh pages for any entity that has crossed the mention threshold.
+	if (metadata) {
+		const mentions = extractEntityMentions(metadata);
+		if (mentions.length) {
+			linkThoughtEntities(thoughtId, mentions)
+				.then((entityIds) => updateEntityPagesForThought(entityIds))
+				.catch((e) => console.error("Entity pipeline error:", e));
+		}
 	}
 
 	if (personDefinitions?.length) {

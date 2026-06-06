@@ -18,13 +18,16 @@ import { registerListTopicPages } from "./tools/list-topic-pages.ts";
 import { registerGetTopicPage } from "./tools/get-topic-page.ts";
 import { registerRefreshTopicPage } from "./tools/refresh-topic-page.ts";
 import { registerLintThoughts } from "./tools/lint-thoughts.ts";
+import { registerListEntities } from "./tools/list-entities.ts";
+import { registerGetEntity } from "./tools/get-entity.ts";
+import { registerRefreshEntityPage } from "./tools/refresh-entity-page.ts";
 
 // --- MCP Server Factory (stateless: new instance per request) ---
 
 function createServer(): McpServer {
 	const server = new McpServer({
 		name: "echo",
-		version: "5.0.0",
+		version: "6.0.0",
 	});
 
 	registerSearchThoughts(server);
@@ -41,6 +44,9 @@ function createServer(): McpServer {
 	registerGetTopicPage(server);
 	registerRefreshTopicPage(server);
 	registerLintThoughts(server);
+	registerListEntities(server);
+	registerGetEntity(server);
+	registerRefreshEntityPage(server);
 
 	return server;
 }

@@ -11,10 +11,12 @@ A personal knowledge capture system. Thoughts go in, get tagged and embedded by 
 - **Decompose** multi-topic inputs into atomic thoughts automatically, with parent context injected in search results
 - **Classify** memories as fact, preference, episodic, or procedural — each decays differently in search ranking
 - **Relate** thoughts automatically via a knowledge graph (updates, extends, derives, related); explicit provenance via `source_ids`
+- **Connect** entities — people, projects, organizations, tools, and places are extracted into a graph (`entities`, `thought_entities`, co-occurrence `entity_edges`) with auto-compiled per-entity wiki pages prepended to search results
 - **Lint** the knowledge base — detect contradictions, orphaned thoughts, stale facts, and near-duplicates
 - **Profile** synthesize a structured user profile from captured knowledge (static facts + dynamic activity)
 - **Version** every thought update; history archived in `thought_versions`
-- **MCP server** exposes 14 tools so Claude can read, write, reason, and maintain the knowledge base directly
+- **MCP server** exposes 17 tools so Claude can read, write, reason, and maintain the knowledge base directly
+- **Skills** ship prompt-only packs that operate on the base (meeting synthesis, research synthesis, idea panning, entity briefs) — see [`skills/`](skills/)
 - **Auto-capture** evaluate every Claude Code turn through a relevance gate and save worthy exchanges silently after each assistant turn
 - **Mine** historical Claude Code transcripts into the knowledge base with cost-safe batching and resume support
 - **Translate** non-English content to English before storage so embeddings are consistent and search works regardless of the original conversation language
@@ -115,6 +117,18 @@ Relations are stored in a `thought_relations` table and traversable via the `get
 
 **Explicit provenance:** `capture_thought` accepts `source_ids: string[]`. When provided, `derives` relations are created at confidence 1.0 without going through the LLM classifier — deterministic provenance for when Claude synthesizes an answer from specific sources and captures it.
 
+### Entity graph & pages
+
+While `thought_relations` links thoughts to thoughts, the entity graph links thoughts to the **things they're about**. Each capture projects its extracted metadata (people, project, organization, location, tools) into deduped nodes:
+
+- **`entities`** — one row per `(type, canonical_name)`; `mention_count` maintained by trigger
+- **`thought_entities`** — evidence links (which thought mentions which entity)
+- **`entity_edges`** — undirected co-occurrence edges with a weight (entities mentioned together)
+
+People are not a separate table — they're `entities` rows with `type = 'person'`, carrying their relationship role on `metadata.role`. `people.ts` is the curated-identity view over those rows (resolving "my mother-in-law" → canonical name during extraction); the graph projects the same person nodes from `metadata.people`, which is already resolved to canonical names. The projection runs fire-and-forget after capture; `backfill-entities.ts` populates the graph from existing thoughts (API-free).
+
+**Entity pages** are the entity analogue of topic pages — one LLM-compiled wiki page per entity that crosses the 3-thought threshold, stored in `entity_pages`. Pages are *generated artifacts*: each refresh is a full recompile from the entity's linked thoughts plus its strongest co-occurrence edges, so the SQL tables remain the single source of truth and pages never drift. Relevant entity pages are prepended to `search_thoughts` results alongside topic pages. Tools: `list_entities`, `get_entity`, `refresh_entity_page`.
+
 ### Decomposition
 
 When a capture is long or covers multiple topics, the LLM automatically splits it into atomic thoughts. The original becomes a parent bundle (`is_bundle = true`) and is excluded from search results. Child thoughts reference it via `parent_id`.
@@ -174,6 +188,9 @@ The Supabase service role key is used internally for DB access and is never expo
 | `list_topic_pages` | List all compiled topic pages with titles, source counts, and last-updated dates |
 | `get_topic_page` | Retrieve a topic page by slug or ID — full compiled summary + source thought IDs |
 | `refresh_topic_page` | Force full recompilation of a topic page from all its source thoughts |
+| `list_entities` | List graph entities (people, projects, organizations, tools, places) by mention count, filterable by type |
+| `get_entity` | Retrieve an entity by id or name — its wiki page, mentioning thoughts, and co-occurring entities |
+| `refresh_entity_page` | Force full recompilation of an entity's wiki page from its linked thoughts and edges |
 | `lint_thoughts` | Health-check: detect contradictions, orphaned episodic thoughts, stale facts, and near-duplicates |
 
 ### Claude Code config
@@ -357,30 +374,34 @@ echo/
 │   │   ├── mine-state.ts            # Checkpoint state (persisted to ~/.echo-mine-state.json)
 │   │   └── progress-file.ts         # Writes scripts/mine-progress.md
 │   ├── mine-claude-transcripts.ts           # Mine CLI entry point
-│   └── mine-claude-transcripts.allowlist.ts # Hardcoded project allowlist
+│   ├── mine-claude-transcripts.allowlist.ts # Hardcoded project allowlist
+│   ├── backfill-relations.ts                # Backfill thought_relations graph
+│   └── backfill-entities.ts                 # Backfill the entity graph (API-free)
+├── skills/                 # Prompt-only skill packs over the Echo MCP tools
+│   ├── meeting-synthesis/
+│   ├── research-synthesis/
+│   ├── panning-for-gold/
+│   └── entity-brief/
 └── supabase/
     ├── functions/
     │   └── echo-mcp/
-    │       ├── index.ts        # Hono app + MCP server factory (v5.0.0)
+    │       ├── index.ts        # Hono app + MCP server factory (v6.0.0)
     │       ├── config.ts
-    │       ├── ai.ts           # LLM calls (metadata, embeddings, relation classification, topic compilation)
+    │       ├── ai.ts           # LLM calls (metadata, embeddings, relation/topic/entity compilation)
     │       ├── decompose.ts    # Decomposition logic + saveSingleThought
     │       ├── recurrence.ts   # Recurrence advancement
     │       ├── topic-pages.ts  # Topic page lifecycle (create, incremental update, recompile)
-    │       └── tools/          # One file per MCP tool (14 tools)
+    │       ├── entities.ts     # Entity projection from thought metadata (nodes, links, edges)
+    │       ├── entity-pages.ts # Entity wiki page lifecycle (full recompile)
+    │       └── tools/          # One file per MCP tool (17 tools)
     └── migrations/
         ├── 00002_add_versioning.sql
-        ├── 00003_add_scheduling.sql
-        ├── 00004_add_decomposition.sql
-        ├── 00005_enable_rls_thought_versions.sql
-        ├── 00006_fix_function_search_paths.sql
-        ├── 00008_add_hybrid_search.sql
-        ├── 00009_memory_classification.sql
-        ├── 00010_temporal_grounding.sql
-        ├── 00011_knowledge_graph.sql
+        ├── …
         ├── 00012_topic_pages.sql
         ├── 00013_lint_support.sql
-        └── 00015_add_source_tracking.sql
+        ├── 00015_add_source_tracking.sql
+        ├── 00021_entities.sql
+        └── 00022_entity_pages.sql
 ```
 
 ---
