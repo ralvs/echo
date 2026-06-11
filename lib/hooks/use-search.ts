@@ -31,7 +31,7 @@ export function useSearch() {
 			if (!res.ok) {
 				throw new Error(data.error ?? `HTTP ${res.status}`);
 			}
-			setResults(Array.isArray(data) ? data : []);
+			setResults(Array.isArray(data?.results) ? data.results : []);
 		} catch (err) {
 			setError(err instanceof Error ? err : new Error(String(err)));
 			setResults([]);
