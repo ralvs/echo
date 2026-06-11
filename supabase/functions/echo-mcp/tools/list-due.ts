@@ -1,8 +1,7 @@
-import { type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-
-import { supabase, PRIORITY_LABELS } from "../config.ts";
 import type { RecurrenceRule } from "../../_shared/types.ts";
+import { PRIORITY_LABELS, supabase } from "../config.ts";
 
 export function registerListDue(server: McpServer) {
 	server.registerTool(

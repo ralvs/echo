@@ -1,7 +1,7 @@
-import { type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { supabase } from "../config.ts";
 import { detectContradictions } from "../ai.ts";
+import { supabase } from "../config.ts";
 
 export function registerLintThoughts(server: McpServer) {
 	server.registerTool(

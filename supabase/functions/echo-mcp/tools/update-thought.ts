@@ -1,9 +1,8 @@
-import { type McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-
+import { buildEmbeddingText, extractMetadata, getEmbedding } from "../ai.ts";
 import { supabase } from "../config.ts";
-import { getEmbedding, extractMetadata, buildEmbeddingText } from "../ai.ts";
-import { getKnownPeople, upsertPerson, backfillPersonAlias } from "../people.ts";
+import { backfillPersonAlias, getKnownPeople, upsertPerson } from "../people.ts";
 
 export function registerUpdateThought(server: McpServer) {
 	server.registerTool(

@@ -1,26 +1,25 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPTransport } from "@hono/mcp";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Hono } from "hono";
-
-import { registerSearchThoughts } from "./tools/search-thoughts.ts";
-import { registerListThoughts } from "./tools/list-thoughts.ts";
-import { registerThoughtStats } from "./tools/thought-stats.ts";
 import { registerCaptureThought } from "./tools/capture-thought.ts";
-import { registerUpdateThought } from "./tools/update-thought.ts";
 import { registerDeleteThought } from "./tools/delete-thought.ts";
-import { registerResolveThought } from "./tools/resolve-thought.ts";
-import { registerListDue } from "./tools/list-due.ts";
-import { registerGetThoughtContext } from "./tools/get-thought-context.ts";
-import { registerGetProfile } from "./tools/get-profile.ts";
-import { registerListTopicPages } from "./tools/list-topic-pages.ts";
-import { registerGetTopicPage } from "./tools/get-topic-page.ts";
-import { registerRefreshTopicPage } from "./tools/refresh-topic-page.ts";
-import { registerLintThoughts } from "./tools/lint-thoughts.ts";
-import { registerListEntities } from "./tools/list-entities.ts";
 import { registerGetEntity } from "./tools/get-entity.ts";
+import { registerGetProfile } from "./tools/get-profile.ts";
+import { registerGetThoughtContext } from "./tools/get-thought-context.ts";
+import { registerGetTopicPage } from "./tools/get-topic-page.ts";
+import { registerLintThoughts } from "./tools/lint-thoughts.ts";
+import { registerListDue } from "./tools/list-due.ts";
+import { registerListEntities } from "./tools/list-entities.ts";
+import { registerListThoughts } from "./tools/list-thoughts.ts";
+import { registerListTopicPages } from "./tools/list-topic-pages.ts";
 import { registerRefreshEntityPage } from "./tools/refresh-entity-page.ts";
+import { registerRefreshTopicPage } from "./tools/refresh-topic-page.ts";
+import { registerResolveThought } from "./tools/resolve-thought.ts";
+import { registerSearchThoughts } from "./tools/search-thoughts.ts";
+import { registerThoughtStats } from "./tools/thought-stats.ts";
+import { registerUpdateThought } from "./tools/update-thought.ts";
 
 // --- MCP Server Factory (stateless: new instance per request) ---
 
