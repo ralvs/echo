@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceRecurrence } from "./recurrence";
+import { advanceRecurrence } from "./recurrence.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 

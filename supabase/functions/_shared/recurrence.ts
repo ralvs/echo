@@ -1,8 +1,9 @@
-import type { RecurrenceRule } from "./types";
+import type { RecurrenceRule } from "./types.ts";
 
 /**
  * Returns the next due date after resolving a recurring thought.
- * Pure function — no I/O. The resolve route applies the result to the DB.
+ * Pure function — no I/O. The resolve-and-advance module applies the
+ * result to the DB.
  *
  * Invariant: result is always in the future relative to `now`.
  */

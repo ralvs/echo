@@ -9,6 +9,7 @@
 		"esModuleInterop": true,
 		"module": "esnext",
 		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
 		"resolveJsonModule": true,
 		"isolatedModules": true,
 		"jsx": "react-jsx",
@@ -19,7 +20,8 @@
 			}
 		],
 		"paths": {
-			"@/*": ["./*"]
+			"@/*": ["./*"],
+			"@shared/*": ["./supabase/functions/_shared/*"]
 		}
 	},
 	"include": [
@@ -29,5 +31,5 @@
 		".next/types/**/*.ts",
 		".next/dev/types/**/*.ts"
 	],
-	"exclude": ["node_modules", "supabase"]
+	"exclude": ["node_modules", "supabase/functions/echo-mcp"]
 }
