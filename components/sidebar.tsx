@@ -1,8 +1,8 @@
 "use client";
 
+import { motion } from "motion/react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { motion } from "motion/react";
 
 const navItems = [
 	{
@@ -10,6 +10,7 @@ const navItems = [
 		label: "Overview",
 		icon: (
 			<svg
+				aria-hidden="true"
 				width="18"
 				height="18"
 				viewBox="0 0 24 24"
@@ -31,6 +32,7 @@ const navItems = [
 		label: "Thoughts",
 		icon: (
 			<svg
+				aria-hidden="true"
 				width="18"
 				height="18"
 				viewBox="0 0 24 24"
@@ -49,6 +51,7 @@ const navItems = [
 		label: "Capture",
 		icon: (
 			<svg
+				aria-hidden="true"
 				width="18"
 				height="18"
 				viewBox="0 0 24 24"

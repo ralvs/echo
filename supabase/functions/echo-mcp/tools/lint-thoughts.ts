@@ -91,7 +91,7 @@ export function registerLintThoughts(server: McpServer) {
 					if (trulyOrphaned.length) {
 						const lines = trulyOrphaned.map(
 							(t: { id: string; content: string; created_at: string }) => {
-								const preview = t.content.length > 80 ? t.content.slice(0, 80) + "…" : t.content;
+								const preview = t.content.length > 80 ? `${t.content.slice(0, 80)}…` : t.content;
 								return `  • [${new Date(t.created_at).toLocaleDateString()}] ${preview}\n    ID: ${t.id}`;
 							},
 						);
@@ -126,7 +126,7 @@ export function registerLintThoughts(server: McpServer) {
 
 					if (stale.length) {
 						const lines = stale.map((t: { id: string; content: string; created_at: string }) => {
-							const preview = t.content.length > 80 ? t.content.slice(0, 80) + "…" : t.content;
+							const preview = t.content.length > 80 ? `${t.content.slice(0, 80)}…` : t.content;
 							return `  • [${new Date(t.created_at).toLocaleDateString()}] ${preview}\n    ID: ${t.id}`;
 						});
 						sections.push(
@@ -156,9 +156,9 @@ export function registerLintThoughts(server: McpServer) {
 								similarity: number;
 							}) => {
 								const previewA =
-									d.content_a.length > 70 ? d.content_a.slice(0, 70) + "…" : d.content_a;
+									d.content_a.length > 70 ? `${d.content_a.slice(0, 70)}…` : d.content_a;
 								const previewB =
-									d.content_b.length > 70 ? d.content_b.slice(0, 70) + "…" : d.content_b;
+									d.content_b.length > 70 ? `${d.content_b.slice(0, 70)}…` : d.content_b;
 								return `  • ${(d.similarity * 100).toFixed(1)}% similar\n    A [${d.thought_a}]: ${previewA}\n    B [${d.thought_b}]: ${previewB}`;
 							},
 						);

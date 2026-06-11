@@ -46,7 +46,7 @@ export function registerDeleteThought(server: McpServer) {
 				const m = (thought.metadata || {}) as Record<string, unknown>;
 				const preview =
 					thought.content.length > 100
-						? thought.content.substring(0, 100) + "..."
+						? `${thought.content.substring(0, 100)}...`
 						: thought.content;
 
 				return {

@@ -12,8 +12,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const AI_GATEWAY_BASE = "https://ai-gateway.vercel.sh/v1";
 const AI_GATEWAY_API_KEY = process.env.AI_GATEWAY_API_KEY ?? "";
-const SUPABASE_URL =
-	process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
 if (!SUPABASE_URL || !SUPABASE_KEY || !AI_GATEWAY_API_KEY) {
@@ -107,9 +106,9 @@ async function processThought(
 
 	if (!matches || matches.length === 0) return [];
 
-	const candidates = (matches as { id: string; content: string; parent_id?: string; is_bundle?: boolean }[]).filter(
-		(m) => m.id !== thoughtId && !m.is_bundle && (!parentId || m.parent_id !== parentId),
-	);
+	const candidates = (
+		matches as { id: string; content: string; parent_id?: string; is_bundle?: boolean }[]
+	).filter((m) => m.id !== thoughtId && !m.is_bundle && (!parentId || m.parent_id !== parentId));
 
 	const summaries: string[] = [];
 
@@ -137,7 +136,8 @@ async function processThought(
 				.neq("source_id", thoughtId);
 		}
 
-		const preview = candidate.content.length > 60 ? `${candidate.content.slice(0, 60)}…` : candidate.content;
+		const preview =
+			candidate.content.length > 60 ? `${candidate.content.slice(0, 60)}…` : candidate.content;
 		summaries.push(`${result.relation} "${preview}" (${(result.confidence * 100).toFixed(0)}%)`);
 	}
 
@@ -185,7 +185,7 @@ for (const t of todo as { id: string; content: string; parent_id: string | null 
 	} catch (err) {
 		console.error(`[${processed}/${todo.length}] ${t.id.slice(0, 8)} error:`, err);
 	}
-	await Bun.sleep(120);
+	await new Promise((resolve) => setTimeout(resolve, 120));
 }
 
 console.log(`\nDone. ${totalEdges} edges written across ${processed} thoughts.`);

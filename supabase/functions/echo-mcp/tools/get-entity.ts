@@ -33,7 +33,7 @@ export function registerGetEntity(server: McpServer) {
 				if (id) {
 					lookup = lookup.eq("id", id);
 				} else {
-					lookup = lookup.eq("canonical_name", name!);
+					lookup = lookup.eq("canonical_name", name ?? "");
 					if (type) lookup = lookup.eq("type", type);
 				}
 

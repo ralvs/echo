@@ -135,7 +135,7 @@ export function registerGetThoughtContext(server: McpServer) {
 					const latestTag = rel.is_latest === false ? " (superseded)" : "";
 					const preview = other
 						? other.content.length > 120
-							? other.content.substring(0, 120) + "..."
+							? `${other.content.substring(0, 120)}...`
 							: other.content
 						: "(deleted)";
 

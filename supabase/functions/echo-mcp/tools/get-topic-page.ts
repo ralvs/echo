@@ -27,7 +27,10 @@ export function registerGetTopicPage(server: McpServer) {
 					.from("topic_pages")
 					.select("id, slug, title, summary, thought_ids, thought_count, updated_at, created_at");
 
-				const { data, error } = await (id ? query.eq("id", id) : query.eq("slug", slug!)).single();
+				const { data, error } = await (id
+					? query.eq("id", id)
+					: query.eq("slug", slug ?? "")
+				).single();
 
 				if (error || !data) {
 					return {

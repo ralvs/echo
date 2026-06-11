@@ -77,7 +77,7 @@ export function registerListDue(server: McpServer) {
 						t.priority && t.priority > 0 ? ` [${PRIORITY_LABELS[t.priority]}]` : "";
 					const catTag = t.category ? ` (${t.category})` : "";
 					const recurTag = t.recurrence ? " ↻" : "";
-					const preview = t.content.length > 80 ? t.content.substring(0, 80) + "..." : t.content;
+					const preview = t.content.length > 80 ? `${t.content.substring(0, 80)}...` : t.content;
 					return `  ${new Date(t.due_at).toLocaleDateString()}${priorityTag}${catTag}${recurTag} — ${preview}\n    ID: ${t.id} | Type: ${m.type || "unknown"}`;
 				};
 
