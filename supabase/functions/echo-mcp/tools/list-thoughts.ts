@@ -1,7 +1,35 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { listThoughts } from "../../_shared/list-thoughts.ts";
 import type { RecurrenceRule } from "../../_shared/types.ts";
 import { PRIORITY_LABELS, supabase } from "../config.ts";
+
+type ListedThought = {
+	id: string;
+	content: string;
+	metadata: Record<string, unknown>;
+	created_at: string;
+	event_at: string | null;
+	due_at: string | null;
+	priority: number | null;
+	category: string | null;
+	recurrence: RecurrenceRule | null;
+};
+
+function formatThought(t: ListedThought, i: number): string {
+	const m = t.metadata || {};
+	const tags = Array.isArray(m.topics) ? (m.topics as string[]).join(", ") : "";
+	const statusTag = m.status ? ` [${m.status}]` : "";
+	const priorityTag = t.priority && t.priority > 0 ? ` P:${PRIORITY_LABELS[t.priority]}` : "";
+	const dueTag = t.due_at ? ` Due:${new Date(t.due_at).toLocaleDateString()}` : "";
+	const eventTag = t.event_at ? ` Event:${new Date(t.event_at).toLocaleDateString()}` : "";
+	const recurTag = t.recurrence ? " ↻" : "";
+	const catTag = t.category ? ` [${t.category}]` : "";
+	const projectTag = m.project ? ` 📁${m.project}` : "";
+	const orgTag = m.organization ? ` 🏢${m.organization}` : "";
+	const sentimentTag = m.sentiment === "positive" ? " ✓" : m.sentiment === "negative" ? " ✗" : "";
+	return `${i + 1}. [${new Date(t.created_at).toLocaleDateString()}] (${m.type || "??"}${tags ? ` - ${tags}` : ""})${statusTag}${priorityTag}${dueTag}${eventTag}${recurTag}${catTag}${projectTag}${orgTag}${sentimentTag}\n   ID: ${t.id}\n   ${t.content}`;
+}
 
 export function registerListThoughts(server: McpServer) {
 	server.registerTool(
@@ -44,127 +72,35 @@ export function registerListThoughts(server: McpServer) {
 					.describe("Sort order: created_at (default), due_at, or priority"),
 			},
 		},
-		async ({
-			limit,
-			type,
-			topic,
-			person,
-			days,
-			status,
-			category,
-			priority,
-			overdue,
-			due_within_days,
-			recurring,
-			project,
-			organization,
-			sentiment,
-			order_by,
-		}) => {
+		async (input) => {
 			try {
-				let q = supabase
-					.from("thoughts")
-					.select(
-						"id, content, metadata, created_at, event_at, due_at, priority, category, recurrence",
-					)
-					.limit(limit);
+				const data = await listThoughts<ListedThought>(supabase, {
+					limit: input.limit,
+					type: input.type,
+					topic: input.topic,
+					person: input.person,
+					status: input.status,
+					project: input.project,
+					organization: input.organization,
+					sentiment: input.sentiment,
+					category: input.category,
+					minPriority: input.priority,
+					recurring: input.recurring,
+					days: input.days,
+					overdue: input.overdue,
+					dueWithinDays: input.due_within_days,
+					orderBy: input.order_by,
+				});
 
-				// Exclude bundle parents by default
-				q = q.or("is_bundle.is.null,is_bundle.eq.false");
-
-				// Sorting
-				if (order_by === "due_at") {
-					q = q.order("due_at", { ascending: true, nullsFirst: false });
-				} else if (order_by === "priority") {
-					q = q.order("priority", { ascending: false, nullsFirst: false });
-				} else {
-					q = q.order("created_at", { ascending: false });
-				}
-
-				// JSONB filters
-				if (type) q = q.contains("metadata", { type });
-				if (topic) q = q.contains("metadata", { topics: [topic] });
-				if (person) q = q.contains("metadata", { people: [person] });
-				if (status) q = q.contains("metadata", { status });
-
-				if (project) q = q.contains("metadata", { project });
-				if (organization) q = q.contains("metadata", { organization });
-				if (sentiment) q = q.contains("metadata", { sentiment });
-
-				// Column filters
-				if (category) q = q.eq("category", category);
-				if (priority) q = q.gte("priority", priority);
-				if (recurring === true) q = q.not("recurrence", "is", null);
-				if (recurring === false) q = q.is("recurrence", null);
-
-				if (days) {
-					const since = new Date();
-					since.setDate(since.getDate() - days);
-					q = q.gte("created_at", since.toISOString());
-				}
-
-				const now = new Date().toISOString();
-				if (overdue) {
-					q = q.lt("due_at", now).contains("metadata", { status: "open" });
-				}
-				if (due_within_days) {
-					const until = new Date();
-					until.setDate(until.getDate() + due_within_days);
-					q = q.gte("due_at", now).lte("due_at", until.toISOString());
-				}
-
-				const { data, error } = await q;
-
-				if (error) {
-					return {
-						content: [{ type: "text" as const, text: `Error: ${error.message}` }],
-						isError: true,
-					};
-				}
-
-				if (!data || !data.length) {
+				if (!data.length) {
 					return { content: [{ type: "text" as const, text: "No thoughts found." }] };
 				}
-
-				const results = data.map(
-					(
-						t: {
-							id: string;
-							content: string;
-							metadata: Record<string, unknown>;
-							created_at: string;
-							event_at: string | null;
-							due_at: string | null;
-							priority: number | null;
-							category: string | null;
-							recurrence: RecurrenceRule | null;
-						},
-						i: number,
-					) => {
-						const m = t.metadata || {};
-						const tags = Array.isArray(m.topics) ? (m.topics as string[]).join(", ") : "";
-						const statusTag = m.status ? ` [${m.status}]` : "";
-						const priorityTag =
-							t.priority && t.priority > 0 ? ` P:${PRIORITY_LABELS[t.priority]}` : "";
-						const dueTag = t.due_at ? ` Due:${new Date(t.due_at).toLocaleDateString()}` : "";
-						const eventTag = t.event_at
-							? ` Event:${new Date(t.event_at).toLocaleDateString()}`
-							: "";
-						const recurTag = t.recurrence ? " ↻" : "";
-						const catTag = t.category ? ` [${t.category}]` : "";
-						const projectTag = m.project ? ` 📁${m.project}` : "";
-						const orgTag = m.organization ? ` 🏢${m.organization}` : "";
-						const sentimentTag =
-							m.sentiment === "positive" ? " ✓" : m.sentiment === "negative" ? " ✗" : "";
-						return `${i + 1}. [${new Date(t.created_at).toLocaleDateString()}] (${m.type || "??"}${tags ? ` - ${tags}` : ""})${statusTag}${priorityTag}${dueTag}${eventTag}${recurTag}${catTag}${projectTag}${orgTag}${sentimentTag}\n   ID: ${t.id}\n   ${t.content}`;
-					},
-				);
 
 				return {
 					content: [
 						{
 							type: "text" as const,
-							text: `${data.length} thought(s):\n\n${results.join("\n\n")}`,
+							text: `${data.length} thought(s):\n\n${data.map(formatThought).join("\n\n")}`,
 						},
 					],
 				};

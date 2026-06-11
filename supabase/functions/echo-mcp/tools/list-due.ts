@@ -1,7 +1,27 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { listThoughts } from "../../_shared/list-thoughts.ts";
 import type { RecurrenceRule } from "../../_shared/types.ts";
 import { PRIORITY_LABELS, supabase } from "../config.ts";
+
+type DueThought = {
+	id: string;
+	content: string;
+	metadata: Record<string, unknown>;
+	due_at: string;
+	priority: number | null;
+	category: string | null;
+	recurrence: RecurrenceRule | null;
+};
+
+function formatItem(t: DueThought): string {
+	const m = t.metadata || {};
+	const priorityTag = t.priority && t.priority > 0 ? ` [${PRIORITY_LABELS[t.priority]}]` : "";
+	const catTag = t.category ? ` (${t.category})` : "";
+	const recurTag = t.recurrence ? " ↻" : "";
+	const preview = t.content.length > 80 ? `${t.content.substring(0, 80)}...` : t.content;
+	return `  ${new Date(t.due_at).toLocaleDateString()}${priorityTag}${catTag}${recurTag} — ${preview}\n    ID: ${t.id} | Type: ${m.type || "unknown"}`;
+}
 
 export function registerListDue(server: McpServer) {
 	server.registerTool(
@@ -25,61 +45,14 @@ export function registerListDue(server: McpServer) {
 		},
 		async ({ days_ahead, include_overdue }) => {
 			try {
-				const now = new Date();
-				const until = new Date();
-				until.setDate(until.getDate() + days_ahead);
+				const upcoming = await listThoughts<DueThought>(supabase, {
+					dueWithinDays: days_ahead,
+					orderBy: "due_at",
+				});
 
-				const { data: upcoming, error: upErr } = await supabase
-					.from("thoughts")
-					.select("id, content, metadata, due_at, priority, category, recurrence")
-					.or("is_bundle.is.null,is_bundle.eq.false")
-					.gte("due_at", now.toISOString())
-					.lte("due_at", until.toISOString())
-					.order("due_at", { ascending: true });
-
-				if (upErr) {
-					return {
-						content: [{ type: "text" as const, text: `Error: ${upErr.message}` }],
-						isError: true,
-					};
-				}
-
-				let overdue: typeof upcoming = [];
-				if (include_overdue) {
-					const { data: od, error: odErr } = await supabase
-						.from("thoughts")
-						.select("id, content, metadata, due_at, priority, category, recurrence")
-						.or("is_bundle.is.null,is_bundle.eq.false")
-						.lt("due_at", now.toISOString())
-						.contains("metadata", { status: "open" })
-						.order("due_at", { ascending: true });
-
-					if (odErr) {
-						return {
-							content: [{ type: "text" as const, text: `Error: ${odErr.message}` }],
-							isError: true,
-						};
-					}
-					overdue = od || [];
-				}
-
-				const formatItem = (t: {
-					id: string;
-					content: string;
-					metadata: Record<string, unknown>;
-					due_at: string;
-					priority: number | null;
-					category: string | null;
-					recurrence: RecurrenceRule | null;
-				}) => {
-					const m = t.metadata || {};
-					const priorityTag =
-						t.priority && t.priority > 0 ? ` [${PRIORITY_LABELS[t.priority]}]` : "";
-					const catTag = t.category ? ` (${t.category})` : "";
-					const recurTag = t.recurrence ? " ↻" : "";
-					const preview = t.content.length > 80 ? `${t.content.substring(0, 80)}...` : t.content;
-					return `  ${new Date(t.due_at).toLocaleDateString()}${priorityTag}${catTag}${recurTag} — ${preview}\n    ID: ${t.id} | Type: ${m.type || "unknown"}`;
-				};
+				const overdue = include_overdue
+					? await listThoughts<DueThought>(supabase, { overdue: true, orderBy: "due_at" })
+					: [];
 
 				const lines: string[] = [];
 
@@ -89,12 +62,12 @@ export function registerListDue(server: McpServer) {
 					lines.push("");
 				}
 
-				if (upcoming?.length) {
+				if (upcoming.length) {
 					lines.push(`UPCOMING (next ${days_ahead} days — ${upcoming.length}):`);
 					for (const t of upcoming) lines.push(formatItem(t));
 				}
 
-				if (!overdue.length && !upcoming?.length) {
+				if (!overdue.length && !upcoming.length) {
 					return {
 						content: [
 							{
