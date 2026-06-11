@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildEmbeddingText, identifyTopicPage } from "./ai.ts";
+import { buildEmbeddingText, identifyTopicPage, synthesizeProfile } from "./ai.ts";
+import type { Ai, ModelRequest } from "./model.ts";
 
 describe("buildEmbeddingText", () => {
 	it("returns just content when metadata is empty", () => {
@@ -118,5 +119,55 @@ describe("identifyTopicPage", () => {
 			title: "Exercise",
 			isNew: false,
 		});
+	});
+});
+
+describe("synthesizeProfile", () => {
+	const PROFILE = {
+		static: { facts: ["Email is x@x.com"], organizations: ["Anthropic"] },
+		dynamic: { open_tasks: ["Ship the refactor"] },
+		summary: "A builder.",
+	};
+
+	function capturingAi(response: string) {
+		const seen: ModelRequest[] = [];
+		const ai: Ai = {
+			generate: async (req) => {
+				seen.push(req);
+				return response;
+			},
+			embed: async () => [],
+		};
+		return { ai, seen };
+	}
+
+	it("renders the tagged blocks the prompt rules reference", async () => {
+		const { ai, seen } = capturingAi(JSON.stringify(PROFILE));
+
+		const profile = await synthesizeProfile(
+			ai,
+			[{ content: "Works at Anthropic", metadata: { organization: "Anthropic" } }],
+			[
+				{
+					content: "Finish review",
+					metadata: { status: "open", project: "echo" },
+					due_at: "2026-07-01",
+					priority: 3,
+				},
+			],
+			"work",
+		);
+
+		expect(profile.summary).toBe("A builder.");
+		const system = seen[0].system;
+		expect(system).toContain("[org: Anthropic]");
+		expect(system).toContain("[open], due:2026-07-01, P3, project:echo");
+		expect(system).toContain("Emphasize information related to: work");
+	});
+
+	it("throws on unparseable model output so adapters can report it", async () => {
+		const { ai } = capturingAi("not json");
+
+		await expect(synthesizeProfile(ai, [], [])).rejects.toThrow();
 	});
 });

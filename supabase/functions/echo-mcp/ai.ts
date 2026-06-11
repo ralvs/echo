@@ -36,3 +36,9 @@ export const detectContradictions = (facts: { id: string; content: string; topic
 	shared.detectContradictions(ai, facts);
 
 export const decomposeWithLLM = (text: string) => shared.decomposeWithLLM(ai, text);
+
+export const synthesizeProfile = (
+	staticThoughts: shared.ProfileStaticRow[],
+	dynamicThoughts: shared.ProfileDynamicRow[],
+	focus?: string,
+) => shared.synthesizeProfile(ai, staticThoughts, dynamicThoughts, focus);

@@ -14,9 +14,15 @@ export type ModelRequest = {
 	jsonObject?: boolean;
 };
 
+export type ModelUsage = { inputTokens: number; outputTokens: number };
+
 export type Ai = {
 	/** Returns the model's raw text response. Throws on transport errors. */
 	generate(req: ModelRequest): Promise<string>;
+	/** Like generate, but also reports token usage. Optional — production
+	 * adapters implement it for callers that meter cost (the relevance
+	 * gate); fakes may omit it and usage falls back to zero. */
+	generateWithUsage?(req: ModelRequest): Promise<{ text: string; usage: ModelUsage }>;
 	/** Returns the embedding vector for the given text. Throws on errors. */
 	embed(text: string): Promise<number[]>;
 };

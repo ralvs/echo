@@ -401,6 +401,136 @@ If there are no contradictions, return: {"contradictions": []}`,
 	return results;
 }
 
+export type ProfileStaticRow = {
+	content: string;
+	metadata: Record<string, unknown> | null;
+};
+
+export type ProfileDynamicRow = ProfileStaticRow & {
+	due_at: string | null;
+	priority: number | null;
+};
+
+export type UserProfile = {
+	static?: {
+		facts?: string[];
+		preferences?: string[];
+		contact_graph?: { name: string; role: string }[];
+		organizations?: string[];
+	};
+	dynamic?: {
+		active_projects?: string[];
+		upcoming_events?: string[];
+		recent_topics?: string[];
+		open_tasks?: string[];
+		sentiment_patterns?: string[];
+	};
+	summary?: string;
+};
+
+function relationshipTags(metadata: Record<string, unknown>): string {
+	const rel = metadata.relationship;
+	if (!rel || typeof rel !== "object") return "";
+	return Object.entries(rel as Record<string, string>)
+		.map(([name, role]) => `${name}=${role}`)
+		.join(", ");
+}
+
+/** Renders the static thought set into the tagged lines the profile prompt
+ * keys on ([org: ...], [relationships: ...]). */
+function buildStaticBlock(rows: ProfileStaticRow[]): string {
+	return rows
+		.map((t) => {
+			const m = t.metadata || {};
+			let line = `- ${t.content}`;
+			if (m.organization) line += ` [org: ${m.organization}]`;
+			const rels = relationshipTags(m);
+			if (rels) line += ` [relationships: ${rels}]`;
+			return line;
+		})
+		.join("\n");
+}
+
+function buildDynamicBlock(rows: ProfileDynamicRow[]): string {
+	return rows
+		.map((t) => {
+			const m = t.metadata || {};
+			const tags: string[] = [];
+			if (m.status) tags.push(`[${m.status}]`);
+			if (t.due_at) tags.push(`due:${t.due_at}`);
+			if (t.priority && t.priority > 0) tags.push(`P${t.priority}`);
+			if (m.project) tags.push(`project:${m.project}`);
+			if (m.organization) tags.push(`org:${m.organization}`);
+			if (m.sentiment) tags.push(`sentiment:${m.sentiment}`);
+			const rels = relationshipTags(m);
+			if (rels) tags.push(`rels:${rels}`);
+			const suffix = tags.length ? ` (${tags.join(", ")})` : "";
+			return `- ${t.content}${suffix}`;
+		})
+		.join("\n");
+}
+
+/**
+ * Synthesizes the structured user profile from the static (facts and
+ * preferences) and dynamic (recent episodes and open tasks) thought sets.
+ * The block rendering lives here because the prompt's rules reference the
+ * tags it produces. Throws when the model response can't be parsed.
+ */
+export async function synthesizeProfile(
+	ai: Ai,
+	staticThoughts: ProfileStaticRow[],
+	dynamicThoughts: ProfileDynamicRow[],
+	focus?: string,
+): Promise<UserProfile> {
+	const staticBlock = buildStaticBlock(staticThoughts);
+	const dynamicBlock = buildDynamicBlock(dynamicThoughts);
+
+	const raw = await ai.generate({
+		system: `Synthesize a structured user profile from these captured thoughts.
+
+STATIC FACTS & PREFERENCES (persistent):
+${staticBlock || "(none yet)"}
+
+RECENT EPISODES & ACTIVE TASKS (dynamic):
+${dynamicBlock || "(none yet)"}
+
+Return JSON with this structure:
+{
+  "static": {
+    "facts": ["..."],
+    "preferences": ["..."],
+    "contact_graph": [{"name": "...", "role": "..."}],
+    "organizations": ["..."]
+  },
+  "dynamic": {
+    "active_projects": ["..."],
+    "upcoming_events": ["..."],
+    "recent_topics": ["..."],
+    "open_tasks": ["..."],
+    "sentiment_patterns": ["..."]
+  },
+  "summary": "A 2-3 sentence natural language summary of who this person is and what they're currently focused on."
+}
+
+Rules:
+- Only include information explicitly present in the thoughts
+- Keep each array entry concise (one sentence max)
+- contact_graph: build from [relationships: ...] tags — each unique person with their role
+- organizations: unique company/institution names from [org: ...] tags
+- active_projects: use [project: ...] tags as primary signal, supplement with free-text inference
+- sentiment_patterns: note any recurring emotional patterns (e.g. "consistently negative about X", "positive about Y")
+- Empty arrays are fine if no relevant data exists
+${focus ? `- Emphasize information related to: ${focus}` : ""}
+Return ONLY valid JSON.`,
+		prompt: "Generate my profile.",
+		maxOutputTokens: 2048,
+		jsonObject: true,
+	});
+
+	const clean = raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+	return JSON.parse(clean) as UserProfile;
+}
+
 export async function decomposeWithLLM(
 	ai: Ai,
 	text: string,
