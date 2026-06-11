@@ -106,7 +106,7 @@ Dual-layer timestamping separates _when captured_ (`created_at`) from _when it h
 
 ### Knowledge graph
 
-When a new thought is captured, it's compared against existing thoughts (similarity threshold ≥ 0.8). High-similarity matches are classified by the LLM into relation types:
+When a new thought is captured, it's compared against existing thoughts via `hybrid_search` (match threshold ≥ 0.65). Matches are classified by the LLM into relation types:
 
 - **updates** — new thought contradicts/replaces old (marks previous as superseded via `is_latest = false`)
 - **extends** — new thought adds detail without replacing
@@ -496,7 +496,7 @@ vercel --prod
 | Resolve-and-advance for recurrence | Simpler than a scheduler; recurring tasks self-propagate on completion |
 | Memory-type decay applied post-query | Keeps the DB function simple; decay logic is easy to tune in application code |
 | `event_at` as real column (not JSONB) | Enables efficient temporal range queries and sorting |
-| Relation detection threshold ≥ 0.8 | High bar before triggering LLM classification avoids false positives and unnecessary API calls |
+| Relation detection threshold ≥ 0.65 | Originally 0.8, but the hybrid score blends vector + full-text rank, so few pairs cleared it and graph edges rarely formed; 0.65 surfaces enough candidates, with the LLM classifier as the false-positive filter |
 | `is_latest` flag on relations | Cleaner than `superseded_by` in metadata for tracking update chains |
 | `topic_pages` as a separate table (not reusing `thoughts`) | Topic pages are system-generated compilations; mixing them into `thoughts` would require filtering them out of every existing query, list, stat, and decomposition check |
 | Topic page updates are non-blocking (fire-and-forget) | Capture must never fail because a background compilation failed; data loss on page miss is acceptable |
