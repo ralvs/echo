@@ -361,7 +361,7 @@ echo/
 │   ├── model.ts            # Node adapter at the model-call seam (Vercel AI SDK)
 │   ├── ai.ts               # Bindings of the shared LLM functions to the Node adapter
 │   ├── capture.ts          # Binding of the shared capture pipeline
-│   ├── relevance-gate.ts   # Shared Haiku gate used by hooks + mine CLI
+│   ├── relevance-gate.ts   # Binding of the shared relevance gate (hooks + mine CLI)
 │   ├── types.ts            # Re-export of _shared/types.ts
 │   ├── supabase.ts
 │   └── store.ts            # Zustand store
@@ -394,6 +394,10 @@ echo/
     │   │   ├── deps.ts         # EchoDeps: { db, ai } injected into every workflow
     │   │   ├── ai.ts           # All LLM schemas, prompts, and functions
     │   │   ├── capture.ts      # The capture pipeline (decomposition + compounding side effects)
+    │   │   ├── search.ts       # The search read path (decay, parent context, page preambles, knobs)
+    │   │   ├── list-thoughts.ts    # The thought-listing filter interface (MCP tools + REST)
+    │   │   ├── relevance-gate.ts   # The auto-capture relevance gate (Stop hook + mine CLI)
+    │   │   ├── page-lifecycle.ts   # Compiled-page invariants shared by topic and entity pages
     │   │   ├── resolve.ts      # Resolve-and-advance workflow
     │   │   ├── recurrence.ts   # Pure recurrence date math
     │   │   ├── search-assembly.ts  # Memory-decay scoring
