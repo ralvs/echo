@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 /**
  * Echo catch-up processor — scans recent Claude Code transcript files and
- * pushes any unprocessed turns to Echo. Safe to re-run: Echo deduplicates
- * by source_id so the same turn is never captured twice.
+ * pushes any unprocessed turns through the shared ingestion workflow.
+ * Safe to re-run: Echo deduplicates by source_id so the same turn is never
+ * captured twice.
  *
  * Usage:
  *   bun run scripts/claude-hooks/catch-up.ts [--hours N] [--file path]
@@ -16,10 +17,9 @@
 import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { relevanceGate } from "@/lib/relevance-gate";
-import { pairTurns, parseTranscript, passesPrefilter } from "@/scripts/lib/transcript-prefilter";
+import { ingestTurn } from "@/scripts/lib/ingest";
+import { pairTurns, parseTranscript } from "@/scripts/lib/transcript-prefilter";
 
-const ECHO_API_URL = process.env.ECHO_API_URL ?? "http://localhost:3000";
 const PROJECTS_ROOT = join(homedir(), ".claude", "projects");
 
 function parseArgs(): { hours: number; file?: string } {
@@ -63,18 +63,6 @@ function findRecentTranscripts(sinceMs: number): string[] {
 	return results;
 }
 
-async function postCapture(body: Record<string, unknown>): Promise<void> {
-	const res = await fetch(`${ECHO_API_URL}/api/thoughts`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify(body),
-	});
-	if (!res.ok) {
-		const text = await res.text().catch(() => "");
-		throw new Error(`POST /api/thoughts failed (${res.status}): ${text.slice(0, 200)}`);
-	}
-}
-
 function projectNameFromPath(transcriptPath: string): string | undefined {
 	// ~/.claude/projects/<project-dir>/<session>.jsonl
 	const parts = transcriptPath.split("/");
@@ -107,46 +95,21 @@ async function processTranscript(
 	const projectName = projectNameFromPath(filePath);
 
 	for (const turn of turns) {
-		if (!passesPrefilter(turn)) {
-			stats.skipped++;
-			continue;
-		}
+		const result = await ingestTurn(turn, { projectName });
 
-		const sessionId = turn.sessionId;
-		if (!sessionId) {
-			stats.skipped++;
-			continue;
-		}
-
-		const sourceId = `${sessionId}:${turn.turnIndex}`;
-
-		try {
-			const { decision } = await relevanceGate({
-				userMessage: turn.userMessage,
-				assistantMessage: turn.assistantMessage,
-				projectName,
-			});
-
-			if (!decision.should_capture) {
+		switch (result.outcome) {
+			case "captured":
+				console.log(`[echo-catchup] captured ${result.sourceId}`);
+				stats.captured++;
+				break;
+			case "duplicate":
+			case "skipped":
 				stats.skipped++;
-				continue;
-			}
-
-			await postCapture({
-				content: decision.content,
-				source_id: sourceId,
-				source_kind: "claude-transcript",
-				metadata: {
-					type: decision.suggested_type,
-					topics: decision.suggested_topics,
-					memory_type: decision.memory_type,
-				},
-			});
-			console.log(`[echo-catchup] captured ${sourceId}`);
-			stats.captured++;
-		} catch (err) {
-			console.error(`[echo-catchup] error on ${sourceId}: ${(err as Error).message}`);
-			stats.errors++;
+				break;
+			case "error":
+				console.error(`[echo-catchup] error on ${result.sourceId}: ${result.reason}`);
+				stats.errors++;
+				break;
 		}
 	}
 
@@ -163,7 +126,9 @@ async function main() {
 	} else {
 		const sinceMs = Date.now() - hours * 60 * 60 * 1000;
 		transcripts = findRecentTranscripts(sinceMs);
-		console.log(`[echo-catchup] found ${transcripts.length} transcript(s) modified in the last ${hours}h`);
+		console.log(
+			`[echo-catchup] found ${transcripts.length} transcript(s) modified in the last ${hours}h`,
+		);
 	}
 
 	let totalCaptured = 0;

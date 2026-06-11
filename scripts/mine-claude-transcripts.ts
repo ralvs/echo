@@ -20,8 +20,8 @@
 import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { relevanceGate } from "@/lib/relevance-gate";
 import { CostTracker } from "@/scripts/lib/cost-tracker";
+import { ingestTurn } from "@/scripts/lib/ingest";
 import {
 	emptyState,
 	lastTurnFor,
@@ -33,19 +33,13 @@ import {
 	statePath,
 } from "@/scripts/lib/mine-state";
 import { progressFilePath, writeProgress } from "@/scripts/lib/progress-file";
-import {
-	pairTurns,
-	parseTranscript,
-	passesPrefilter,
-	type Turn,
-} from "@/scripts/lib/transcript-prefilter";
+import { pairTurns, parseTranscript, passesPrefilter } from "@/scripts/lib/transcript-prefilter";
 import {
 	ALLOWED_PROJECT_DIRS,
 	type AllowedProjectDir,
 	resolveProjectDir,
 } from "@/scripts/mine-claude-transcripts.allowlist";
 
-const ECHO_API_URL = process.env.ECHO_API_URL ?? "http://localhost:3000";
 const PROJECTS_ROOT = `${homedir()}/.claude/projects`;
 
 type Args = {
@@ -186,20 +180,6 @@ function planBatches(state: MineState, batchSize: number, maxCostUsd: number): M
 	return state;
 }
 
-async function postCapture(body: Record<string, unknown>): Promise<{ duplicate: boolean }> {
-	const res = await fetch(`${ECHO_API_URL}/api/thoughts`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify(body),
-	});
-	if (!res.ok) {
-		const text = await res.text().catch(() => "");
-		throw new Error(`POST /api/thoughts failed (${res.status}): ${text.slice(0, 300)}`);
-	}
-	const json = (await res.json()) as { skipped?: string };
-	return { duplicate: json.skipped === "duplicate" };
-}
-
 async function runBatch(state: MineState, args: Args): Promise<void> {
 	const project = args.project;
 	if (!project) {
@@ -230,9 +210,7 @@ async function runBatch(state: MineState, args: Args): Promise<void> {
 		const sessionId = turns[0].sessionId;
 		const lastDone = lastTurnFor(state, project, sessionId);
 
-		const candidates: Turn[] = turns
-			.filter((t) => t.turnIndex > lastDone)
-			.filter((t) => passesPrefilter(t));
+		const candidates = turns.filter((t) => t.turnIndex > lastDone);
 
 		for (const turn of candidates) {
 			if (tracker.snapshot().gateCalls >= args.batchSize) {
@@ -244,40 +222,27 @@ async function runBatch(state: MineState, args: Args): Promise<void> {
 				break outer;
 			}
 
-			const result = await relevanceGate({
-				userMessage: turn.userMessage,
-				assistantMessage: turn.assistantMessage,
+			const result = await ingestTurn(turn, {
+				sessionId,
 				projectName: project.replace(/^-Volumes-stuff-/, ""),
 			});
-			tracker.record(result.usage.inputTokens, result.usage.outputTokens);
 
-			if (result.decision.should_capture) {
-				const sourceId = `${sessionId}:${turn.turnIndex}`;
-				try {
-					const { duplicate } = await postCapture({
-						content: result.decision.content,
-						source_id: sourceId,
-						source_kind: "claude-transcript",
-						metadata: {
-							type: result.decision.suggested_type,
-							topics: result.decision.suggested_topics,
-							memory_type: result.decision.memory_type,
-						},
-					});
-					if (!duplicate) tracker.recordCapture();
-				} catch (err) {
-					console.error(`  capture failed for ${sourceId}: ${(err as Error).message}`);
-				}
+			if (result.outcome === "error") {
+				console.error(`  capture failed for ${result.sourceId}: ${result.reason}`);
 			}
+			if (result.outcome === "captured") tracker.recordCapture();
 
 			setLastTurnFor(state, project, sessionId, turn.turnIndex);
 
-			const snap = tracker.snapshot();
-			if (snap.gateCalls % 10 === 0) {
-				console.log(
-					`  gated ${snap.gateCalls}/${args.batchSize}, captured ${snap.captures}, $${snap.usd.toFixed(2)}/$${args.maxCostUsd.toFixed(2)}`,
-				);
-				saveState(state);
+			if (result.gated) {
+				tracker.record(result.usage.inputTokens, result.usage.outputTokens);
+				const snap = tracker.snapshot();
+				if (snap.gateCalls % 10 === 0) {
+					console.log(
+						`  gated ${snap.gateCalls}/${args.batchSize}, captured ${snap.captures}, $${snap.usd.toFixed(2)}/$${args.maxCostUsd.toFixed(2)}`,
+					);
+					saveState(state);
+				}
 			}
 		}
 	}

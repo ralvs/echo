@@ -13,6 +13,7 @@
 
 import { basename } from "node:path";
 import { generateText } from "ai";
+import { postCapture } from "@/scripts/lib/ingest";
 import { pairTurns, parseTranscript } from "@/scripts/lib/transcript-prefilter";
 
 type PreCompactPayload = {
@@ -23,7 +24,6 @@ type PreCompactPayload = {
 	trigger?: "manual" | "auto";
 };
 
-const ECHO_API_URL = process.env.ECHO_API_URL ?? "http://localhost:3000";
 const SUMMARY_MODEL = "anthropic/claude-haiku-4-5";
 const RECENT_TURNS = 12;
 const EXPIRES_DAYS = 30;
@@ -64,18 +64,6 @@ Always write in English. If the exchanges are in another language, translate to 
 		],
 	});
 	return text.trim();
-}
-
-async function postCapture(body: Record<string, unknown>): Promise<void> {
-	const res = await fetch(`${ECHO_API_URL}/api/thoughts`, {
-		method: "POST",
-		headers: { "content-type": "application/json" },
-		body: JSON.stringify(body),
-	});
-	if (!res.ok) {
-		const text = await res.text().catch(() => "");
-		throw new Error(`POST /api/thoughts failed (${res.status}): ${text.slice(0, 200)}`);
-	}
 }
 
 async function main() {
