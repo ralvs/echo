@@ -1,12 +1,14 @@
 /**
- * Topic page lifecycle: create and incrementally update topic pages.
+ * Topic page adapter over the compiled-page lifecycle (page-lifecycle.ts).
+ * Owns how topic sources are found — slug + embedding matching via
+ * identifyTopicPage — and whether a capture triggers a full compilation
+ * (new page) or an incremental update (existing page).
  * Called non-blocking from the capture pipeline.
  */
 
 import { compileTopicPage, identifyTopicPage } from "./ai.ts";
 import type { EchoDeps } from "./deps.ts";
-
-const CREATION_THRESHOLD = 3; // min thoughts before creating a page
+import { PAGE_CREATION_THRESHOLD, PAGE_MAX_THOUGHTS, writeCompiledPage } from "./page-lifecycle.ts";
 
 type ExistingPage = {
 	id: string;
@@ -14,6 +16,20 @@ type ExistingPage = {
 	title: string;
 	embedding: number[];
 };
+
+type ThoughtRow = {
+	id: string;
+	content: string;
+	created_at: string;
+	metadata: Record<string, unknown>;
+};
+
+const toCompileInput = (rows: ThoughtRow[]) =>
+	rows.map((t) => ({
+		content: t.content,
+		created_at: t.created_at,
+		memory_type: t.metadata?.memory_type as string | undefined,
+	}));
 
 /**
  * Called after a thought is saved. Checks if any of the thought's topics
@@ -39,7 +55,7 @@ export async function updateTopicPagesForThought(
 
 		const pages: ExistingPage[] = existingPages ?? [];
 
-		const match = identifyTopicPage(topics, pages, thoughtEmbedding, CREATION_THRESHOLD);
+		const match = identifyTopicPage(topics, pages, thoughtEmbedding, PAGE_CREATION_THRESHOLD);
 		if (!match) return;
 
 		if (match.isNew) {
@@ -48,7 +64,7 @@ export async function updateTopicPagesForThought(
 				topic_slug: match.slug,
 			});
 			const count = (countResult as number) ?? 0;
-			if (count < CREATION_THRESHOLD) return;
+			if (count < PAGE_CREATION_THRESHOLD) return;
 
 			// Fetch all thoughts for this topic to do a full initial compilation
 			const { data: topicThoughts } = await db
@@ -57,27 +73,17 @@ export async function updateTopicPagesForThought(
 				.contains("metadata->topics", JSON.stringify([match.slug]))
 				.eq("is_bundle", false)
 				.order("created_at", { ascending: true })
-				.limit(50);
+				.limit(PAGE_MAX_THOUGHTS);
 
-			const thoughts = (topicThoughts ?? []).map(
-				(t: { content: string; created_at: string; metadata: Record<string, unknown> }) => ({
-					content: t.content,
-					created_at: t.created_at,
-					memory_type: t.metadata?.memory_type as string | undefined,
-				}),
-			);
+			const rows = (topicThoughts ?? []) as ThoughtRow[];
 
-			const summary = await compileTopicPage(ai, match.title, null, thoughts);
-			const embedding = await ai.embed(`${match.title}\n\n${summary}`);
-			const thoughtIds = (topicThoughts ?? []).map((t: { id: string }) => t.id);
-
-			await db.from("topic_pages").insert({
-				slug: match.slug,
+			await writeCompiledPage(deps, {
+				table: "topic_pages",
+				conflictKey: "slug",
+				key: { slug: match.slug },
 				title: match.title,
-				summary,
-				embedding,
-				thought_ids: thoughtIds,
-				thought_count: thoughtIds.length,
+				compile: () => compileTopicPage(ai, match.title, null, toCompileInput(rows)),
+				thoughtIds: rows.map((t) => t.id),
 			});
 		} else {
 			// Incremental update: existing page gets only the new thought
@@ -93,22 +99,17 @@ export async function updateTopicPagesForThought(
 			const alreadyIncluded = (page.thought_ids as string[]).includes(thoughtId);
 			if (alreadyIncluded) return;
 
-			const updatedSummary = await compileTopicPage(ai, match.title, page.summary, [
-				{ content: thoughtContent, created_at: thoughtCreatedAt, memory_type: memoryType },
-			]);
-
-			const updatedThoughtIds = [...(page.thought_ids as string[]), thoughtId];
-			const updatedEmbedding = await ai.embed(`${match.title}\n\n${updatedSummary}`);
-
-			await db
-				.from("topic_pages")
-				.update({
-					summary: updatedSummary,
-					embedding: updatedEmbedding,
-					thought_ids: updatedThoughtIds,
-					thought_count: updatedThoughtIds.length,
-				})
-				.eq("id", page.id);
+			await writeCompiledPage(deps, {
+				table: "topic_pages",
+				conflictKey: "slug",
+				key: { slug: match.slug },
+				title: match.title,
+				compile: () =>
+					compileTopicPage(ai, match.title, page.summary, [
+						{ content: thoughtContent, created_at: thoughtCreatedAt, memory_type: memoryType },
+					]),
+				thoughtIds: [...(page.thought_ids as string[]), thoughtId],
+			});
 		}
 	} catch (err) {
 		// Non-blocking: log but never throw — capture flow must not fail
@@ -143,21 +144,16 @@ export async function recompileTopicPage(
 		.in("id", page.thought_ids as string[])
 		.order("created_at", { ascending: true });
 
-	const thoughts = (topicThoughts ?? []).map(
-		(t: { content: string; created_at: string; metadata: Record<string, unknown> }) => ({
-			content: t.content,
-			created_at: t.created_at,
-			memory_type: t.metadata?.memory_type as string | undefined,
-		}),
-	);
+	const rows = (topicThoughts ?? []) as ThoughtRow[];
 
-	const summary = await compileTopicPage(ai, page.title, null, thoughts);
-	const embedding = await ai.embed(`${page.title}\n\n${summary}`);
+	const { thought_count } = await writeCompiledPage(deps, {
+		table: "topic_pages",
+		conflictKey: "slug",
+		key: { slug: page.slug },
+		title: page.title,
+		compile: () => compileTopicPage(ai, page.title, null, toCompileInput(rows)),
+		thoughtIds: rows.map((t) => t.id),
+	});
 
-	await db
-		.from("topic_pages")
-		.update({ summary, embedding, thought_count: thoughts.length })
-		.eq("id", pageId);
-
-	return { slug: page.slug, title: page.title, thought_count: thoughts.length };
+	return { slug: page.slug, title: page.title, thought_count };
 }

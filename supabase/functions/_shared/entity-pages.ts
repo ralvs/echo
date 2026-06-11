@@ -1,16 +1,16 @@
 /**
- * Entity page lifecycle — the graph-backed analogue of topic-pages.ts.
- * Pages are generated artifacts: each refresh is a full recompile from the
- * entity's linked thoughts plus its strongest co-occurrence edges, so the
- * SQL tables remain the single source of truth.
+ * Entity page adapter over the compiled-page lifecycle (page-lifecycle.ts).
+ * Owns how entity sources are found — graph links plus co-occurrence edges —
+ * and always recompiles in full (entity thought sets are small), deleting
+ * stale pages when an entity drops below the threshold. The SQL tables
+ * remain the single source of truth.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { compileEntityPage } from "./ai.ts";
 import type { EchoDeps } from "./deps.ts";
+import { PAGE_CREATION_THRESHOLD, PAGE_MAX_THOUGHTS, writeCompiledPage } from "./page-lifecycle.ts";
 
-const CREATION_THRESHOLD = 3; // min linked thoughts before a page is built
-const MAX_THOUGHTS = 50; // cap source thoughts fed into a single compile
 const MAX_RELATED = 8; // cap related entities surfaced on a page
 
 type RelatedEntity = { name: string; type: string; weight: number };
@@ -75,7 +75,7 @@ export async function recompileEntityPage(
 
 	const thoughtIds = (links ?? []).map((l: { thought_id: string }) => l.thought_id);
 
-	if (thoughtIds.length < CREATION_THRESHOLD) {
+	if (thoughtIds.length < PAGE_CREATION_THRESHOLD) {
 		// Below threshold — remove any existing page so artifacts never go stale.
 		await db.from("entity_pages").delete().eq("entity_id", entityId);
 		return null;
@@ -87,7 +87,7 @@ export async function recompileEntityPage(
 		.in("id", thoughtIds)
 		.or("is_bundle.is.null,is_bundle.eq.false")
 		.order("created_at", { ascending: true })
-		.limit(MAX_THOUGHTS);
+		.limit(PAGE_MAX_THOUGHTS);
 
 	const thoughts = (thoughtRows ?? []).map((t: { content: string; created_at: string }) => ({
 		content: t.content,
@@ -96,34 +96,22 @@ export async function recompileEntityPage(
 	if (!thoughts.length) return null;
 
 	const related = await getRelatedEntities(db, entityId);
-	const summary = await compileEntityPage(
-		ai,
-		entity.canonical_name,
-		entity.type,
-		thoughts,
-		related,
-	);
-	const embedding = await ai.embed(`${entity.canonical_name}\n\n${summary}`);
 	const compiledIds = (thoughtRows ?? []).map((t: { id: string }) => t.id);
 
-	await db.from("entity_pages").upsert(
-		{
-			entity_id: entityId,
-			title: entity.canonical_name,
-			entity_type: entity.type,
-			summary,
-			embedding,
-			thought_ids: compiledIds,
-			thought_count: compiledIds.length,
-			related,
-		},
-		{ onConflict: "entity_id" },
-	);
+	const { thought_count } = await writeCompiledPage(deps, {
+		table: "entity_pages",
+		conflictKey: "entity_id",
+		key: { entity_id: entityId },
+		title: entity.canonical_name,
+		compile: () => compileEntityPage(ai, entity.canonical_name, entity.type, thoughts, related),
+		thoughtIds: compiledIds,
+		extra: { entity_type: entity.type, related },
+	});
 
 	return {
 		title: entity.canonical_name,
 		entity_type: entity.type,
-		thought_count: compiledIds.length,
+		thought_count,
 	};
 }
 
@@ -141,7 +129,7 @@ export async function updateEntityPagesForThought(
 			.from("entities")
 			.select("id, mention_count")
 			.in("id", entityIds)
-			.gte("mention_count", CREATION_THRESHOLD);
+			.gte("mention_count", PAGE_CREATION_THRESHOLD);
 
 		for (const row of (rows ?? []) as { id: string }[]) {
 			await recompileEntityPage(deps, row.id).catch((e) =>
