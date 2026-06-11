@@ -1,44 +1,42 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Ai } from "./model.ts";
+import { backfillPersonAlias, upsertPerson } from "./people.ts";
 
-const mocks = vi.hoisted(() => ({
+const mocks = {
 	maybeSingle: vi.fn(),
 	insert: vi.fn(),
 	updateEq: vi.fn(),
 	contains: vi.fn(),
 	thoughtsUpdateEq: vi.fn(),
-	getEmbedding: vi.fn(),
-	buildEmbeddingText: vi.fn(),
-}));
+	embed: vi.fn(),
+};
 
-vi.mock("./config.ts", () => ({
-	supabase: {
-		from: vi.fn((table: string) => {
-			if (table === "entities") {
-				return {
-					select: vi.fn(() => ({
-						eq: vi.fn(() => ({
-							eq: vi.fn(() => ({ maybeSingle: mocks.maybeSingle })),
-						})),
-					})),
-					insert: mocks.insert,
-					update: vi.fn(() => ({ eq: mocks.updateEq })),
-				};
-			}
-			// "thoughts"
+const db = {
+	from: vi.fn((table: string) => {
+		if (table === "entities") {
 			return {
-				select: vi.fn(() => ({ contains: mocks.contains })),
-				update: vi.fn(() => ({ eq: mocks.thoughtsUpdateEq })),
+				select: vi.fn(() => ({
+					eq: vi.fn(() => ({
+						eq: vi.fn(() => ({ maybeSingle: mocks.maybeSingle })),
+					})),
+				})),
+				insert: mocks.insert,
+				update: vi.fn(() => ({ eq: mocks.updateEq })),
 			};
-		}),
-	},
-}));
+		}
+		// "thoughts"
+		return {
+			select: vi.fn(() => ({ contains: mocks.contains })),
+			update: vi.fn(() => ({ eq: mocks.thoughtsUpdateEq })),
+		};
+	}),
+} as unknown as SupabaseClient;
 
-vi.mock("./ai.ts", () => ({
-	buildEmbeddingText: mocks.buildEmbeddingText,
-	getEmbedding: mocks.getEmbedding,
-}));
-
-import { backfillPersonAlias, upsertPerson } from "./people.ts";
+const ai: Ai = {
+	generate: vi.fn(),
+	embed: mocks.embed,
+};
 
 describe("upsertPerson", () => {
 	beforeEach(() => {
@@ -50,7 +48,7 @@ describe("upsertPerson", () => {
 	it("inserts a new person and returns the role as a new alias", async () => {
 		mocks.maybeSingle.mockResolvedValue({ data: null });
 
-		const result = await upsertPerson("Andrea", "mother-in-law");
+		const result = await upsertPerson(db, "Andrea", "mother-in-law");
 
 		expect(result).toEqual({ newAliases: ["mother-in-law"] });
 		expect(mocks.insert).toHaveBeenCalledWith({
@@ -64,7 +62,7 @@ describe("upsertPerson", () => {
 	it("lowercases and trims the role before storing", async () => {
 		mocks.maybeSingle.mockResolvedValue({ data: null });
 
-		await upsertPerson("Andrea", "  Mother-In-Law  ");
+		await upsertPerson(db, "Andrea", "  Mother-In-Law  ");
 
 		expect(mocks.insert).toHaveBeenCalledWith(
 			expect.objectContaining({ aliases: ["mother-in-law"] }),
@@ -76,7 +74,7 @@ describe("upsertPerson", () => {
 			data: { id: "abc", aliases: ["mother-in-law"] },
 		});
 
-		const result = await upsertPerson("Andrea", "mother-in-law");
+		const result = await upsertPerson(db, "Andrea", "mother-in-law");
 
 		expect(result).toEqual({ newAliases: [] });
 		expect(mocks.updateEq).not.toHaveBeenCalled();
@@ -88,21 +86,9 @@ describe("upsertPerson", () => {
 			data: { id: "abc", aliases: ["andrea"] },
 		});
 
-		const result = await upsertPerson("Andrea", "mother-in-law");
+		const result = await upsertPerson(db, "Andrea", "mother-in-law");
 
 		expect(result).toEqual({ newAliases: ["mother-in-law"] });
-		expect(mocks.updateEq).toHaveBeenCalledWith("id", "abc");
-	});
-
-	it("preserves existing aliases when adding a new one", async () => {
-		mocks.maybeSingle.mockResolvedValue({
-			data: { id: "abc", aliases: ["andrea", "andi"] },
-		});
-
-		await upsertPerson("Andrea", "mother-in-law");
-
-		// The update call receives the merged alias list — check via the update mock's parent
-		// We verify indirectly: newAliases is returned correctly and updateEq is called
 		expect(mocks.updateEq).toHaveBeenCalledWith("id", "abc");
 	});
 });
@@ -111,20 +97,19 @@ describe("backfillPersonAlias", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.thoughtsUpdateEq.mockResolvedValue({});
-		mocks.getEmbedding.mockResolvedValue([0.1, 0.2, 0.3]);
-		mocks.buildEmbeddingText.mockReturnValue("embedded text");
+		mocks.embed.mockResolvedValue([0.1, 0.2, 0.3]);
 	});
 
 	it("does nothing when no thoughts contain the alias", async () => {
 		mocks.contains.mockResolvedValue({ data: [] });
 
-		await backfillPersonAlias("daughter", "Bella");
+		await backfillPersonAlias({ db, ai }, "daughter", "Bella");
 
 		expect(mocks.thoughtsUpdateEq).not.toHaveBeenCalled();
-		expect(mocks.getEmbedding).not.toHaveBeenCalled();
+		expect(mocks.embed).not.toHaveBeenCalled();
 	});
 
-	it("replaces alias with canonical name in metadata.people", async () => {
+	it("replaces the alias with the canonical name and re-embeds enriched text", async () => {
 		mocks.contains.mockResolvedValue({
 			data: [
 				{
@@ -136,31 +121,12 @@ describe("backfillPersonAlias", () => {
 			],
 		});
 
-		await backfillPersonAlias("daughter", "Bella");
+		await backfillPersonAlias({ db, ai }, "daughter", "Bella");
 
-		expect(mocks.buildEmbeddingText).toHaveBeenCalledWith(
-			"Bought a gift",
-			expect.objectContaining({ people: ["Bella", "Andrea"] }),
-			"shopping",
+		// Re-embedded text is the enriched form with the canonical name swapped in
+		expect(mocks.embed).toHaveBeenCalledWith(
+			"Bought a gift\n\nCategory: shopping\n\nPeople: Bella, Andrea",
 		);
-	});
-
-	it("re-embeds the updated thought", async () => {
-		mocks.contains.mockResolvedValue({
-			data: [
-				{
-					id: "t1",
-					content: "note",
-					metadata: { people: ["daughter"] },
-					category: null,
-				},
-			],
-		});
-		mocks.buildEmbeddingText.mockReturnValue("note\n\nPeople: Bella");
-
-		await backfillPersonAlias("daughter", "Bella");
-
-		expect(mocks.getEmbedding).toHaveBeenCalledWith("note\n\nPeople: Bella");
 		expect(mocks.thoughtsUpdateEq).toHaveBeenCalledWith("id", "t1");
 	});
 
@@ -172,7 +138,7 @@ describe("backfillPersonAlias", () => {
 			],
 		});
 
-		await backfillPersonAlias("daughter", "Bella");
+		await backfillPersonAlias({ db, ai }, "daughter", "Bella");
 
 		expect(mocks.thoughtsUpdateEq).toHaveBeenCalledTimes(2);
 		expect(mocks.thoughtsUpdateEq).toHaveBeenCalledWith("id", "t1");
@@ -191,12 +157,8 @@ describe("backfillPersonAlias", () => {
 			],
 		});
 
-		await backfillPersonAlias("daughter", "Bella");
+		await backfillPersonAlias({ db, ai }, "daughter", "Bella");
 
-		expect(mocks.buildEmbeddingText).toHaveBeenCalledWith(
-			"note",
-			expect.objectContaining({ people: ["Bella", "John", "Andrea"] }),
-			null,
-		);
+		expect(mocks.embed).toHaveBeenCalledWith("note\n\nPeople: Bella, John, Andrea");
 	});
 });

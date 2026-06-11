@@ -1,24 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { runPostCapturePipeline } from "../capture-pipeline.ts";
-import { DECOMPOSE_ENABLED, PRIORITY_LABELS, supabase } from "../config.ts";
-import { decompose, saveSingleThought } from "../decompose.ts";
-import { getKnownPeople } from "../people.ts";
-
-async function insertSourceRelations(thoughtId: string, sourceIds: string[]): Promise<void> {
-	for (const sourceId of sourceIds) {
-		await supabase.from("thought_relations").upsert(
-			{
-				source_id: thoughtId,
-				target_id: sourceId,
-				relation_type: "derives",
-				confidence: 1.0,
-				is_latest: true,
-			},
-			{ onConflict: "source_id,target_id,relation_type" },
-		);
-	}
-}
+import { captureThought } from "../../_shared/capture.ts";
+import { DECOMPOSE_ENABLED, DECOMPOSE_MIN_TOKENS, PRIORITY_LABELS, supabase } from "../config.ts";
+import { ai } from "../model.ts";
 
 export function registerCaptureThought(server: McpServer) {
 	server.registerTool(
@@ -127,128 +111,64 @@ export function registerCaptureThought(server: McpServer) {
 					};
 				}
 
-				if (source_id) {
-					const { data: existing } = await supabase
-						.from("thoughts")
-						.select("id")
-						.eq("source_id", source_id)
-						.maybeSingle();
-					if (existing) {
-						return {
-							content: [
-								{
-									type: "text" as const,
-									text: `Skipped duplicate (source_id=${source_id}, existing id=${existing.id})`,
-								},
-							],
-						};
-					}
-				}
-
-				const overrides: Record<string, unknown> = {
-					type,
-					topics,
-					due_at,
-					recurrence,
-					priority,
-					category,
-					source_id,
-					source_kind,
-				};
-
-				const knownPeople = await getKnownPeople();
-
-				// Decomposition policy: single interface hides heuristic + LLM fallback
-				const atomicThoughts = await decompose(text, DECOMPOSE_ENABLED);
-
-				if (!atomicThoughts) {
-					// Single thought path
-					const {
-						id,
-						metadata,
-						category: savedCategory,
-						embedding,
-						created_at,
-						personDefinitions,
-					} = await saveSingleThought(text, overrides, knownPeople);
-
-					if (source_ids?.length) await insertSourceRelations(id, source_ids);
-
-					const topics = Array.isArray(metadata.topics) ? (metadata.topics as string[]) : [];
-					const { relations } = await runPostCapturePipeline(
-						id,
-						text,
-						embedding,
-						created_at,
+				const result = await captureThought(
+					{ db: supabase, ai },
+					{
+						content: text,
+						type,
 						topics,
-						metadata.memory_type as string | undefined,
-						undefined,
-						personDefinitions,
-						metadata,
-					);
-
-					let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${id})`;
-					if (savedCategory) confirmation += ` [${savedCategory}]`;
-					if (topics.length) confirmation += ` — ${topics.join(", ")}`;
-					if (Array.isArray(metadata.people) && metadata.people.length)
-						confirmation += ` | People: ${(metadata.people as string[]).join(", ")}`;
-					if (Array.isArray(metadata.action_items) && metadata.action_items.length)
-						confirmation += ` | Actions: ${(metadata.action_items as string[]).join("; ")}`;
-					if (due_at) confirmation += ` | Due: ${new Date(due_at).toLocaleDateString()}`;
-					if (recurrence) confirmation += ` | Recurring`;
-					if (priority && priority > 0) confirmation += ` | Priority: ${PRIORITY_LABELS[priority]}`;
-					if (relations.length) confirmation += `\nRelations: ${relations.join("; ")}`;
-
-					return { content: [{ type: "text" as const, text: confirmation }] };
-				}
-
-				// Decomposed path: save parent bundle + atomic children
-				const parent = await saveSingleThought(
-					text,
-					{ ...overrides, type: overrides.type || "log", is_bundle: true },
-					knownPeople,
+						due_at,
+						recurrence,
+						priority,
+						category,
+						source_ids,
+						source_id,
+						source_kind,
+					},
+					{
+						source: "mcp",
+						decompose: DECOMPOSE_ENABLED,
+						decomposeMinTokens: DECOMPOSE_MIN_TOKENS,
+					},
 				);
 
-				const children: { id: string; topic: string }[] = [];
-				const allRelations: string[] = [];
-
-				for (const item of atomicThoughts) {
-					const child = await saveSingleThought(
-						item.content,
-						{
-							type: item.type,
-							topics: [item.topic],
-							category: overrides.category,
-							parent_id: parent.id,
-						},
-						knownPeople,
-					);
-					children.push({ id: child.id, topic: item.topic });
-
-					if (source_ids?.length) await insertSourceRelations(child.id, source_ids);
-
-					const { relations } = await runPostCapturePipeline(
-						child.id,
-						item.content,
-						child.embedding,
-						child.created_at,
-						[item.topic],
-						child.metadata.memory_type as string | undefined,
-						parent.id,
-						child.personDefinitions,
-						child.metadata,
-					);
-					allRelations.push(...relations);
+				if (result.kind === "duplicate") {
+					return {
+						content: [
+							{
+								type: "text" as const,
+								text: `Skipped duplicate (source_id=${result.source_id}, existing id=${result.id})`,
+							},
+						],
+					};
 				}
 
-				const topicList = children.map((c) => c.topic).join(", ");
-				let decomposedText = `Decomposed into ${children.length} atomic thoughts (parent: ${parent.id})\nTopics: ${topicList}`;
-				if (allRelations.length) {
-					decomposedText += `\nRelations: ${allRelations.join("; ")}`;
+				if (result.kind === "decomposed") {
+					const topicList = result.children.map((c) => c.topic).join(", ");
+					let text = `Decomposed into ${result.children.length} atomic thoughts (parent: ${result.parent.id})\nTopics: ${topicList}`;
+					if (result.relations.length) {
+						text += `\nRelations: ${result.relations.join("; ")}`;
+					}
+					return { content: [{ type: "text" as const, text }] };
 				}
-				return {
-					content: [{ type: "text" as const, text: decomposedText }],
-				};
+
+				const { thought: saved, relations } = result;
+				const metadata = (saved.metadata ?? {}) as Record<string, unknown>;
+				const savedTopics = Array.isArray(metadata.topics) ? (metadata.topics as string[]) : [];
+
+				let confirmation = `Captured as ${metadata.type || "thought"} (ID: ${saved.id})`;
+				if (saved.category) confirmation += ` [${saved.category}]`;
+				if (savedTopics.length) confirmation += ` — ${savedTopics.join(", ")}`;
+				if (Array.isArray(metadata.people) && metadata.people.length)
+					confirmation += ` | People: ${(metadata.people as string[]).join(", ")}`;
+				if (Array.isArray(metadata.action_items) && metadata.action_items.length)
+					confirmation += ` | Actions: ${(metadata.action_items as string[]).join("; ")}`;
+				if (due_at) confirmation += ` | Due: ${new Date(due_at).toLocaleDateString()}`;
+				if (recurrence) confirmation += ` | Recurring`;
+				if (priority && priority > 0) confirmation += ` | Priority: ${PRIORITY_LABELS[priority]}`;
+				if (relations.length) confirmation += `\nRelations: ${relations.join("; ")}`;
+
+				return { content: [{ type: "text" as const, text: confirmation }] };
 			} catch (err: unknown) {
 				return {
 					content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],

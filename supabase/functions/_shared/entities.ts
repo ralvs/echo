@@ -3,12 +3,11 @@
  * extracted metadata (people, project, organization, location, tools). Each
  * capture upserts the mentioned entities, links them to the thought as
  * evidence, and records undirected co-occurrence edges between every pair
- * mentioned together. Called fire-and-forget from the post-capture pipeline.
+ * mentioned together. Called fire-and-forget from the capture pipeline.
  */
 
-import { supabase } from "./config.ts";
-
-export type EntityType = "person" | "project" | "organization" | "tool" | "place";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { EntityType } from "./types.ts";
 
 export type EntityMention = { type: EntityType; name: string };
 
@@ -51,6 +50,7 @@ export function extractEntityMentions(metadata: Record<string, unknown>): Entity
  * decide which entity pages to refresh.
  */
 export async function linkThoughtEntities(
+	db: SupabaseClient,
 	thoughtId: string,
 	mentions: EntityMention[],
 ): Promise<string[]> {
@@ -59,14 +59,14 @@ export async function linkThoughtEntities(
 	const ids: string[] = [];
 
 	for (const m of mentions) {
-		const { data, error } = await supabase.rpc("upsert_entity", {
+		const { data, error } = await db.rpc("upsert_entity", {
 			p_type: m.type,
 			p_name: m.name,
 		});
 		if (error || !data) continue;
 		const entityId = data as string;
 
-		const { error: linkErr } = await supabase
+		const { error: linkErr } = await db
 			.from("thought_entities")
 			.upsert(
 				{ thought_id: thoughtId, entity_id: entityId, confidence: 1.0 },
@@ -80,7 +80,7 @@ export async function linkThoughtEntities(
 	// Undirected co-occurrence edges between every pair mentioned together.
 	for (let i = 0; i < ids.length; i++) {
 		for (let j = i + 1; j < ids.length; j++) {
-			await supabase.rpc("upsert_entity_edge", {
+			await db.rpc("upsert_entity_edge", {
 				p_source: ids[i],
 				p_target: ids[j],
 				p_type: "co_occurs_with",
