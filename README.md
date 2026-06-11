@@ -62,16 +62,16 @@ Pages are updated non-blocking after capture (fire-and-forget — capture never 
 
 ### Capture pipeline
 
-Every capture runs two LLM calls **in parallel** to minimize latency:
+**One pipeline, every entry point.** `supabase/functions/_shared/capture.ts` defines what capturing a thought means; the REST API (`/api/thoughts` — used by the dashboard, the Claude Code hooks, and the mine CLI) and the MCP `capture_thought` tool are thin adapters over it, so every capture source gets identical behavior: idempotency, decomposition, and the full compounding layer.
 
-1. **Metadata extraction** (Claude Haiku) — extracts type, topics, people, action items, dates, memory type, `expires_at`, `event_at`, priority, category, recurrence, and cost/url/rating when present
-2. **Embedding** (text-embedding-3-small) — generates a 1536-dim vector from enriched text (content + topics + category appended) so semantic similarity captures metadata concepts, not just raw text
+Each capture runs:
+
+1. **Metadata extraction** (Claude Haiku) — extracts type, topics, people (resolved against known person entities), action items, dates, memory type, `expires_at`, `event_at`, priority, category, recurrence, tools, person definitions, and cost/url/rating when present
+2. **Embedding** (text-embedding-3-small) — generates a 1536-dim vector from enriched text (content + topics + category + people appended) so semantic similarity captures metadata concepts, not just raw text. Runs after extraction because the enriched text depends on it.
 
 **Language normalization:** Before reaching the capture pipeline, content sourced from Claude Code hooks or the mine CLI is translated to English by the relevance gate. All stored content and topics land in a single language space so embeddings are consistent and cross-language searches work correctly.
 
-After saving, two more non-blocking steps run:
-- **Relation detection** — searches for high-similarity existing thoughts (≥ 0.8) and asks the LLM to classify the relationship (updates / extends / derives / related)
-- **Topic page update** — checks whether any of the thought's topics should create or update a compiled topic page
+After saving, **relation detection** runs (awaited — searches for high-similarity existing thoughts and asks the LLM to classify the relationship: updates / extends / derives / related), then the rest of the compounding layer runs non-blocking: **topic page updates**, **entity graph projection + entity page refreshes**, and **person-definition upserts**. In Next.js the non-blocking work is scheduled via `after()` so it survives the response.
 
 ### Hybrid search
 
@@ -350,25 +350,29 @@ The allowlist is hardcoded in `scripts/mine-claude-transcripts.allowlist.ts`. Ex
 echo/
 ├── app/
 │   ├── api/
-│   │   ├── thoughts/       # CRUD (accepts source_id/source_kind for idempotent auto-capture)
+│   │   ├── thoughts/       # CRUD — thin adapter over the shared capture/resolve workflows
 │   │   ├── search/         # Hybrid search endpoint
 │   │   └── stats/          # Dashboard stats
 │   ├── capture/page.tsx
 │   ├── thoughts/[id]/page.tsx
 │   └── page.tsx            # Dashboard
 ├── components/
-├── lib/
-│   ├── ai.ts               # AI Gateway calls (metadata + embeddings)
+├── lib/                    # Next.js-side adapters/bindings over _shared
+│   ├── model.ts            # Node adapter at the model-call seam (Vercel AI SDK)
+│   ├── ai.ts               # Bindings of the shared LLM functions to the Node adapter
+│   ├── capture.ts          # Binding of the shared capture pipeline
 │   ├── relevance-gate.ts   # Shared Haiku gate used by hooks + mine CLI
-│   ├── types.ts
+│   ├── types.ts            # Re-export of _shared/types.ts
 │   ├── supabase.ts
 │   └── store.ts            # Zustand store
 ├── scripts/
 │   ├── claude-hooks/
-│   │   ├── stop-hook.ts        # Claude Code Stop hook — per-turn auto-capture
-│   │   ├── pre-compact-hook.ts # Claude Code PreCompact hook — compaction bookmark
+│   │   ├── stop-hook.ts        # Stop hook — feeds the last turn to the ingestion workflow
+│   │   ├── pre-compact-hook.ts # PreCompact hook — compaction bookmark
+│   │   ├── catch-up.ts         # Reprocess recent transcripts through the ingestion workflow
 │   │   └── README.md           # Hook install instructions
 │   ├── lib/
+│   │   ├── ingest.ts                # Transcript ingestion: prefilter → gate → idempotent POST
 │   │   ├── transcript-prefilter.ts  # JSONL transcript parser + cheap pre-filter
 │   │   ├── cost-tracker.ts          # Token + USD tracking with per-batch ceiling
 │   │   ├── mine-state.ts            # Checkpoint state (persisted to ~/.echo-mine-state.json)
@@ -384,16 +388,23 @@ echo/
 │   └── entity-brief/
 └── supabase/
     ├── functions/
+    │   ├── _shared/            # Runtime-neutral domain modules (imported by Next.js AND Deno)
+    │   │   ├── types.ts        # Domain types — single source of truth
+    │   │   ├── model.ts        # The model-call seam (Ai interface)
+    │   │   ├── deps.ts         # EchoDeps: { db, ai } injected into every workflow
+    │   │   ├── ai.ts           # All LLM schemas, prompts, and functions
+    │   │   ├── capture.ts      # The capture pipeline (decomposition + compounding side effects)
+    │   │   ├── resolve.ts      # Resolve-and-advance workflow
+    │   │   ├── recurrence.ts   # Pure recurrence date math
+    │   │   ├── search-assembly.ts  # Memory-decay scoring
+    │   │   ├── people.ts / entities.ts / topic-pages.ts / entity-pages.ts
+    │   │   └── *.test.ts       # Workflow tests against fake db/ai adapters
     │   └── echo-mcp/
     │       ├── index.ts        # Hono app + MCP server factory (v6.0.0)
-    │       ├── config.ts
-    │       ├── ai.ts           # LLM calls (metadata, embeddings, relation/topic/entity compilation)
-    │       ├── decompose.ts    # Decomposition logic + saveSingleThought
-    │       ├── recurrence.ts   # Recurrence advancement
-    │       ├── topic-pages.ts  # Topic page lifecycle (create, incremental update, recompile)
-    │       ├── entities.ts     # Entity projection from thought metadata (nodes, links, edges)
-    │       ├── entity-pages.ts # Entity wiki page lifecycle (full recompile)
-    │       └── tools/          # One file per MCP tool (17 tools)
+    │       ├── config.ts       # Env validation + Deno Supabase client
+    │       ├── model.ts        # Deno adapter at the model-call seam (raw fetch to AI Gateway)
+    │       ├── ai.ts / people.ts / topic-pages.ts / entity-pages.ts  # Bindings to _shared
+    │       └── tools/          # One thin adapter per MCP tool (17 tools)
     └── migrations/
         ├── 00002_add_versioning.sql
         ├── …
@@ -477,7 +488,9 @@ vercel --prod
 | Real columns for `due_at`, `priority`, `category` | Need efficient range queries and sorting; JSONB can't be indexed the same way |
 | Bearer token auth on MCP (not Supabase JWT) | Supabase gateway doesn't support MCP-level JWT auth yet; publishable key is simpler and sufficient for personal use |
 | `verify_jwt = false` in config.toml | Required because the MCP client sends a custom Bearer token, not a Supabase JWT |
-| Metadata extraction parallel to embedding | Both are independent LLM calls — running in parallel cuts capture latency in half |
+| Runtime-neutral `_shared` module layer | Capture, resolve, extraction, and page lifecycles are implemented once; Next.js and the edge function are thin adapters, so the two runtimes cannot drift |
+| Model calls behind an `Ai` seam | Two adapters already existed (Vercel AI SDK in Node, raw fetch in Deno); prompts and schemas are now a single edit, and tests inject fakes |
+| Extraction before embedding (sequential) | The embedding input is enriched with extracted metadata (topics, category, people) — consistent vectors beat the latency win of parallel calls |
 | Enriched embeddings (content + topics/category appended) | Semantic search matches on metadata concepts, not just raw text |
 | Bundles excluded from search | Parent bundles are containers; searching them would return duplicate/redundant results |
 | Resolve-and-advance for recurrence | Simpler than a scheduler; recurring tasks self-propagate on completion |
