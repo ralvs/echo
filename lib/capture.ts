@@ -41,7 +41,8 @@ export async function captureThought(input: CaptureInput): Promise<CaptureOutput
 		extractMetadata(content),
 	]);
 
-	// Separate real DB columns from JSONB metadata fields.
+	// Separate real DB columns (and person_definitions, which is not stored
+	// in metadata JSONB) from the JSONB metadata fields.
 	const {
 		category: extractedCategory,
 		due_at: extractedDueAt,
@@ -49,6 +50,7 @@ export async function captureThought(input: CaptureInput): Promise<CaptureOutput
 		priority: extractedPriority,
 		expires_at: extractedExpiresAt,
 		event_at: extractedEventAt,
+		person_definitions: _personDefinitions,
 		...jsonbFields
 	} = extracted;
 

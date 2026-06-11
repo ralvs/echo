@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyDecay } from "./search-assembly";
+import { applyDecay } from "./search-assembly.ts";
 
 const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
 

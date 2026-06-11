@@ -11,17 +11,7 @@ import { supabase } from "./config.ts";
 
 const PERSON = "person";
 
-export type PersonRecord = {
-	id: string;
-	canonical_name: string;
-	role: string;
-	aliases: string[];
-};
-
-export type PersonDefinition = {
-	canonical_name: string;
-	role: string;
-};
+export type { PersonDefinition, PersonRecord } from "../_shared/types.ts";
 
 type EntityPersonRow = {
 	id: string;

@@ -1,11 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock("./config.ts", () => ({
-	AI_GATEWAY_API_KEY: "test-key",
-	AI_GATEWAY_BASE: "https://ai-gateway.test/v1",
-	supabase: {},
-}));
-
+import { describe, expect, it } from "vitest";
 import { buildEmbeddingText, identifyTopicPage } from "./ai.ts";
 
 describe("buildEmbeddingText", () => {

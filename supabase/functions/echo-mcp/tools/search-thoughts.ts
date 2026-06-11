@@ -1,8 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { applyDecay, type RawSearchResult } from "../../_shared/search-assembly.ts";
 import { getEmbedding } from "../ai.ts";
 import { PRIORITY_LABELS, supabase } from "../config.ts";
-import { applyDecay, type RawSearchResult } from "../search-assembly.ts";
 
 export function registerSearchThoughts(server: McpServer) {
 	server.registerTool(

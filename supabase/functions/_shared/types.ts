@@ -116,6 +116,22 @@ export type TopicPage = {
 
 export type EntityType = "person" | "project" | "organization" | "tool" | "place";
 
+/** Curated person identity — an `entities` row with type = 'person', viewed
+ * through the alias-resolution lens used during extraction. */
+export type PersonRecord = {
+	id: string;
+	canonical_name: string;
+	role: string;
+	aliases: string[];
+};
+
+/** An explicit "who someone is" statement extracted from a thought
+ * (e.g. "my mother-in-law is called Andrea"). */
+export type PersonDefinition = {
+	canonical_name: string;
+	role: string;
+};
+
 export type Entity = {
 	id: string;
 	type: EntityType;

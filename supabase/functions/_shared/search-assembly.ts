@@ -14,12 +14,18 @@ export type RawSearchResult = {
 	is_bundle?: boolean;
 };
 
+type DecayableResult = {
+	similarity: number;
+	created_at: string;
+	metadata: Record<string, unknown>;
+};
+
 /**
  * Applies memory-type-aware decay to search result similarity scores.
  * Facts and procedural knowledge don't decay; episodic memories decay fastest.
  * Used in both the REST API and the MCP tool so ranking is consistent.
  */
-export function applyDecay(results: RawSearchResult[]): RawSearchResult[] {
+export function applyDecay<T extends DecayableResult>(results: T[]): T[] {
 	const now = Date.now();
 	return results
 		.map((t) => {

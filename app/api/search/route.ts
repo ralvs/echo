@@ -1,6 +1,6 @@
+import { applyDecay } from "@shared/search-assembly.ts";
 import { type NextRequest, NextResponse } from "next/server";
-import { getEmbedding } from "@/lib/embeddings";
-import { applyDecay } from "@/lib/search-assembly";
+import { getEmbedding } from "@/lib/ai";
 
 export async function POST(req: NextRequest) {
 	const body = await req.json();
