@@ -84,14 +84,15 @@ export function registerUpdateThought(server: McpServer) {
 				const knownPeople = await getKnownPeople();
 				const extracted = await extractMetadata(content, knownPeople);
 
-				const extractedCategory = extracted.category as string | null;
-				const extractedPersonDefinitions = extracted.person_definitions as
-					| { canonical_name: string; role: string }[]
-					| undefined;
-				delete extracted.category;
-				delete extracted.person_definitions;
+				// category and person_definitions are real-column / side-effect inputs,
+				// not metadata — destructure them out instead of storing them
+				const {
+					category: extractedCategory,
+					person_definitions: extractedPersonDefinitions,
+					...extractedMetadata
+				} = extracted;
 
-				const metadata = { ...extracted, source: "mcp" } as Record<string, unknown>;
+				const metadata = { ...extractedMetadata, source: "mcp" } as Record<string, unknown>;
 				if (type) metadata.type = type;
 				if (topics) {
 					metadata.topics =
