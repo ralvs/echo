@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { NON_BUNDLE_FILTER } from "../../_shared/thoughts-store.ts";
 import { detectContradictions } from "../ai.ts";
 import { supabase } from "../config.ts";
 import { preview, registerTextTool } from "./contract.ts";
@@ -30,7 +31,7 @@ export function registerLintThoughts(server: McpServer) {
 					.from("thoughts")
 					.select("id, content, metadata")
 					.in("metadata->>memory_type", ["fact", "preference"])
-					.or("is_bundle.is.null,is_bundle.eq.false")
+					.or(NON_BUNDLE_FILTER)
 					.limit(200);
 
 				const factList = (facts ?? []).map(
@@ -65,7 +66,7 @@ export function registerLintThoughts(server: McpServer) {
 					.eq("metadata->>memory_type", "episodic")
 					.lt("created_at", cutoff.toISOString())
 					.is("parent_id", null)
-					.or("is_bundle.is.null,is_bundle.eq.false")
+					.or(NON_BUNDLE_FILTER)
 					.limit(max_items);
 
 				// Filter out those with any relations.
@@ -113,7 +114,7 @@ export function registerLintThoughts(server: McpServer) {
 						thought_relations!thought_relations_target_id_fkey(relation_type, is_latest)`,
 					)
 					.in("metadata->>memory_type", ["fact", "preference"])
-					.or("is_bundle.is.null,is_bundle.eq.false")
+					.or(NON_BUNDLE_FILTER)
 					.limit(200);
 
 				const stale = (staleRows ?? [])

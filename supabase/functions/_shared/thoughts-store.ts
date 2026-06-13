@@ -15,6 +15,15 @@ import type { Thought } from "./types.ts";
 export const THOUGHT_COLUMNS =
 	"id, content, metadata, version, due_at, expires_at, event_at, recurrence, priority, category, source_id, source_kind, created_at, updated_at";
 
+/**
+ * Bundle parents are containers, not thoughts in their own right, and are
+ * excluded from search, listing, stats, and synthesis (see the "Bundles
+ * excluded from search" decision). The exclusion is a PostgREST `.or()`
+ * predicate — named once here so the invariant has one definition instead of
+ * being restated as a magic string at every read site.
+ */
+export const NON_BUNDLE_FILTER = "is_bundle.is.null,is_bundle.eq.false";
+
 /** The row shape every versioned write starts from. */
 export type CurrentThought = {
 	id: string;

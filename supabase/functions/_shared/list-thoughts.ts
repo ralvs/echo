@@ -7,6 +7,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { NON_BUNDLE_FILTER } from "./thoughts-store.ts";
 
 export const DEFAULT_LIST_COLUMNS =
 	"id, content, metadata, created_at, event_at, due_at, priority, category, recurrence";
@@ -39,7 +40,7 @@ export async function listThoughts<T = Record<string, unknown>>(
 	filters: ThoughtListFilters = {},
 	columns: string = DEFAULT_LIST_COLUMNS,
 ): Promise<T[]> {
-	let q = db.from("thoughts").select(columns).or("is_bundle.is.null,is_bundle.eq.false");
+	let q = db.from("thoughts").select(columns).or(NON_BUNDLE_FILTER);
 
 	if (filters.limit) q = q.limit(filters.limit);
 

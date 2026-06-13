@@ -10,6 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { compileEntityPage } from "./ai.ts";
 import type { EchoDeps } from "./deps.ts";
 import { PAGE_CREATION_THRESHOLD, PAGE_MAX_THOUGHTS, writeCompiledPage } from "./page-lifecycle.ts";
+import { NON_BUNDLE_FILTER } from "./thoughts-store.ts";
 
 const MAX_RELATED = 8; // cap related entities surfaced on a page
 
@@ -85,7 +86,7 @@ export async function recompileEntityPage(
 		.from("thoughts")
 		.select("id, content, created_at")
 		.in("id", thoughtIds)
-		.or("is_bundle.is.null,is_bundle.eq.false")
+		.or(NON_BUNDLE_FILTER)
 		.order("created_at", { ascending: true })
 		.limit(PAGE_MAX_THOUGHTS);
 

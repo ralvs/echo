@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { NON_BUNDLE_FILTER } from "../../_shared/thoughts-store.ts";
 import { supabase } from "../config.ts";
 import { preview, registerTextTool, ToolError } from "./contract.ts";
 
@@ -74,7 +75,7 @@ export function registerGetEntity(server: McpServer) {
 					.from("thoughts")
 					.select("id, content, created_at")
 					.in("id", thoughtIds)
-					.or("is_bundle.is.null,is_bundle.eq.false")
+					.or(NON_BUNDLE_FILTER)
 					.order("created_at", { ascending: false })
 					.limit(10);
 

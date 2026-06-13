@@ -8,6 +8,7 @@
 
 import { synthesizeProfile, type UserProfile } from "./ai.ts";
 import type { EchoDeps } from "./deps.ts";
+import { NON_BUNDLE_FILTER } from "./thoughts-store.ts";
 
 const STATIC_LIMIT = 100;
 const DYNAMIC_LIMIT = 50;
@@ -27,7 +28,7 @@ export async function synthesizeUserProfile(
 		.from("thoughts")
 		.select("content, metadata")
 		.or("metadata->>memory_type.eq.fact,metadata->>memory_type.eq.preference")
-		.or("is_bundle.is.null,is_bundle.eq.false")
+		.or(NON_BUNDLE_FILTER)
 		.order("created_at", { ascending: false })
 		.limit(STATIC_LIMIT);
 
@@ -38,7 +39,7 @@ export async function synthesizeUserProfile(
 		.from("thoughts")
 		.select("content, metadata, due_at, priority")
 		.or("metadata->>memory_type.eq.episodic,metadata->>status.eq.open")
-		.or("is_bundle.is.null,is_bundle.eq.false")
+		.or(NON_BUNDLE_FILTER)
 		.order("created_at", { ascending: false })
 		.limit(DYNAMIC_LIMIT);
 
