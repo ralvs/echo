@@ -85,6 +85,8 @@ A `search_thoughts` response is composed of three layers, in order:
 2. **Individual results** — decay-adjusted similarity scores (memory type multiplier applied post-query), sorted descending. Bundle parents excluded.
 3. **Parent context injection** — decomposed child thoughts include their parent bundle's original text as "Original context", so the full capture is visible without duplicating results.
 
+The whole read path — embedding, `hybrid_search`, bundle exclusion, decay, parent context, page preambles, and the tuning knobs — is implemented once in `supabase/functions/_shared/search.ts`. The MCP tool and the REST `POST /api/search` endpoint (which returns `{ results, pages }`) are formatting adapters over it.
+
 ### Memory classification and relevance decay
 
 Every thought is classified into a memory type by the LLM:
