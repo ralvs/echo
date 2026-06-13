@@ -6,6 +6,13 @@
  * The Stop hook (last turn), catch-up (whole sessions), and the mine CLI
  * (history with budget) are adapters that differ only in which turns they
  * feed in and what policy they wrap around the calls.
+ *
+ * Two entries cross this seam: ingestTurn gates a raw turn through Haiku;
+ * ingestRaw captures a thought that has already decided it's worth keeping
+ * (e.g. a compaction bookmark) and so skips the gate. Skipping the gate is a
+ * choice made by calling ingestRaw — not a path that reaches around the
+ * module — so the source_id convention, the POST body shape, and the
+ * IngestResult vocabulary stay in one place.
  */
 
 import { relevanceGate } from "@/lib/relevance-gate";
@@ -43,6 +50,55 @@ export async function postCapture(body: Record<string, unknown>): Promise<{ dupl
 	}
 	const json = (await res.json().catch(() => ({}))) as { skipped?: string };
 	return { duplicate: json.skipped === "duplicate" };
+}
+
+export type RawCaptureInput = {
+	content: string;
+	/** Idempotency key — capture is skipped if a thought with it already exists. */
+	sourceId: string;
+	/** Source taxonomy label, e.g. "claude-precompact". */
+	sourceKind: string;
+	type?: string;
+	topics?: string[];
+	memoryType?: string;
+	/** Natural expiration; the thought drops out of search after it. */
+	expiresAt?: string;
+};
+
+/**
+ * Raw ingestion entry — captures a pre-composed thought that has already
+ * decided it's worth keeping, bypassing the relevance gate. Shares the
+ * idempotent POST and the IngestResult vocabulary with ingestTurn; never
+ * throws, so hooks can switch on the same outcomes.
+ */
+export async function ingestRaw(input: RawCaptureInput): Promise<IngestResult> {
+	try {
+		const { duplicate } = await postCapture({
+			content: input.content,
+			source_id: input.sourceId,
+			source_kind: input.sourceKind,
+			...(input.expiresAt ? { expires_at: input.expiresAt } : {}),
+			metadata: {
+				type: input.type,
+				topics: input.topics,
+				memory_type: input.memoryType,
+			},
+		});
+		return {
+			sourceId: input.sourceId,
+			gated: false,
+			usage: NO_USAGE,
+			outcome: duplicate ? "duplicate" : "captured",
+		};
+	} catch (err) {
+		return {
+			sourceId: input.sourceId,
+			gated: false,
+			usage: NO_USAGE,
+			outcome: "error",
+			reason: (err as Error).message,
+		};
+	}
 }
 
 export async function ingestTurn(

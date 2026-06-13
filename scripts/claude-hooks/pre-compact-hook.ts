@@ -13,7 +13,7 @@
 
 import { basename } from "node:path";
 import { generateText } from "ai";
-import { postCapture } from "@/scripts/lib/ingest";
+import { ingestRaw } from "@/scripts/lib/ingest";
 import { pairTurns, parseTranscript } from "@/scripts/lib/transcript-prefilter";
 
 type PreCompactPayload = {
@@ -108,21 +108,26 @@ async function main() {
 		? `Compaction bookmark — ${projectName} (session ${sessionId.slice(0, 8)})`
 		: `Compaction bookmark (session ${sessionId.slice(0, 8)})`;
 
-	try {
-		await postCapture({
-			content: `${header}\n\n${summary}`,
-			source_id: sourceId,
-			source_kind: "claude-precompact",
-			expires_at: expiresAt,
-			metadata: {
-				type: "log",
-				topics: ["compaction-bookmark", projectName].filter(Boolean) as string[],
-				memory_type: "episodic",
-			},
-		});
-		console.error(`[echo-precompact-hook] captured bookmark for ${sessionId}`);
-	} catch (err) {
-		console.error(`[echo-precompact-hook] capture failed: ${(err as Error).message}`);
+	const result = await ingestRaw({
+		content: `${header}\n\n${summary}`,
+		sourceId,
+		sourceKind: "claude-precompact",
+		expiresAt,
+		type: "log",
+		topics: ["compaction-bookmark", projectName].filter(Boolean) as string[],
+		memoryType: "episodic",
+	});
+
+	switch (result.outcome) {
+		case "captured":
+			console.error(`[echo-precompact-hook] captured bookmark for ${sessionId}`);
+			break;
+		case "duplicate":
+			console.error(`[echo-precompact-hook] bookmark already exists (${sourceId})`);
+			break;
+		case "error":
+			console.error(`[echo-precompact-hook] capture failed: ${result.reason}`);
+			break;
 	}
 }
 
