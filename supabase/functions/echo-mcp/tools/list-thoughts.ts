@@ -3,6 +3,7 @@ import { z } from "zod";
 import { listThoughts } from "../../_shared/list-thoughts.ts";
 import type { RecurrenceRule } from "../../_shared/types.ts";
 import { PRIORITY_LABELS, supabase } from "../config.ts";
+import { registerTextTool } from "./contract.ts";
 
 type ListedThought = {
 	id: string;
@@ -32,7 +33,8 @@ function formatThought(t: ListedThought, i: number): string {
 }
 
 export function registerListThoughts(server: McpServer) {
-	server.registerTool(
+	registerTextTool(
+		server,
 		"list_thoughts",
 		{
 			title: "List Recent Thoughts",
@@ -73,43 +75,26 @@ export function registerListThoughts(server: McpServer) {
 			},
 		},
 		async (input) => {
-			try {
-				const data = await listThoughts<ListedThought>(supabase, {
-					limit: input.limit,
-					type: input.type,
-					topic: input.topic,
-					person: input.person,
-					status: input.status,
-					project: input.project,
-					organization: input.organization,
-					sentiment: input.sentiment,
-					category: input.category,
-					minPriority: input.priority,
-					recurring: input.recurring,
-					days: input.days,
-					overdue: input.overdue,
-					dueWithinDays: input.due_within_days,
-					orderBy: input.order_by,
-				});
+			const data = await listThoughts<ListedThought>(supabase, {
+				limit: input.limit,
+				type: input.type,
+				topic: input.topic,
+				person: input.person,
+				status: input.status,
+				project: input.project,
+				organization: input.organization,
+				sentiment: input.sentiment,
+				category: input.category,
+				minPriority: input.priority,
+				recurring: input.recurring,
+				days: input.days,
+				overdue: input.overdue,
+				dueWithinDays: input.due_within_days,
+				orderBy: input.order_by,
+			});
 
-				if (!data.length) {
-					return { content: [{ type: "text" as const, text: "No thoughts found." }] };
-				}
-
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `${data.length} thought(s):\n\n${data.map(formatThought).join("\n\n")}`,
-						},
-					],
-				};
-			} catch (err: unknown) {
-				return {
-					content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
-					isError: true,
-				};
-			}
+			if (!data.length) return "No thoughts found.";
+			return `${data.length} thought(s):\n\n${data.map(formatThought).join("\n\n")}`;
 		},
 	);
 }

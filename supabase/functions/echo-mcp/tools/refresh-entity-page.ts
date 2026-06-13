@@ -1,9 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { recompileEntityPage } from "../entity-pages.ts";
+import { registerTextTool } from "./contract.ts";
 
 export function registerRefreshEntityPage(server: McpServer) {
-	server.registerTool(
+	registerTextTool(
+		server,
 		"refresh_entity_page",
 		{
 			title: "Refresh Entity Page",
@@ -14,32 +16,11 @@ export function registerRefreshEntityPage(server: McpServer) {
 			},
 		},
 		async ({ entity_id }) => {
-			try {
-				const result = await recompileEntityPage(entity_id);
-				if (!result) {
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: `No page written for ${entity_id} — entity not found or below the 3-thought threshold.`,
-							},
-						],
-					};
-				}
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `Recompiled ${result.entity_type} page "${result.title}" from ${result.thought_count} linked thought(s).`,
-						},
-					],
-				};
-			} catch (err: unknown) {
-				return {
-					content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
-					isError: true,
-				};
+			const result = await recompileEntityPage(entity_id);
+			if (!result) {
+				return `No page written for ${entity_id} — entity not found or below the 3-thought threshold.`;
 			}
+			return `Recompiled ${result.entity_type} page "${result.title}" from ${result.thought_count} linked thought(s).`;
 		},
 	);
 }

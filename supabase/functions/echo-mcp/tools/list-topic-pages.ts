@@ -1,9 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { supabase } from "../config.ts";
+import { registerTextTool, ToolError } from "./contract.ts";
 
 export function registerListTopicPages(server: McpServer) {
-	server.registerTool(
+	registerTextTool(
+		server,
 		"list_topic_pages",
 		{
 			title: "List Topic Pages",
@@ -19,57 +21,31 @@ export function registerListTopicPages(server: McpServer) {
 			},
 		},
 		async ({ limit, order_by }) => {
-			try {
-				const { data, error } = await supabase
-					.from("topic_pages")
-					.select("id, slug, title, thought_count, updated_at, created_at")
-					.order(order_by, { ascending: order_by === "title" })
-					.limit(limit);
+			const { data, error } = await supabase
+				.from("topic_pages")
+				.select("id, slug, title, thought_count, updated_at, created_at")
+				.order(order_by, { ascending: order_by === "title" })
+				.limit(limit);
 
-				if (error) {
-					return {
-						content: [{ type: "text" as const, text: `Error: ${error.message}` }],
-						isError: true,
-					};
-				}
+			if (error) throw new ToolError(`Error: ${error.message}`);
 
-				if (!data?.length) {
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: "No topic pages yet. Capture 3+ thoughts on the same topic to create one.",
-							},
-						],
-					};
-				}
-
-				const lines = data.map(
-					(p: {
-						id: string;
-						slug: string;
-						title: string;
-						thought_count: number;
-						updated_at: string;
-						created_at: string;
-					}) =>
-						`• ${p.title} [${p.slug}] — ${p.thought_count} thought(s) | updated ${new Date(p.updated_at).toLocaleDateString()} | ID: ${p.id}`,
-				);
-
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `${data.length} topic page(s):\n\n${lines.join("\n")}`,
-						},
-					],
-				};
-			} catch (err: unknown) {
-				return {
-					content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
-					isError: true,
-				};
+			if (!data?.length) {
+				return "No topic pages yet. Capture 3+ thoughts on the same topic to create one.";
 			}
+
+			const lines = data.map(
+				(p: {
+					id: string;
+					slug: string;
+					title: string;
+					thought_count: number;
+					updated_at: string;
+					created_at: string;
+				}) =>
+					`• ${p.title} [${p.slug}] — ${p.thought_count} thought(s) | updated ${new Date(p.updated_at).toLocaleDateString()} | ID: ${p.id}`,
+			);
+
+			return `${data.length} topic page(s):\n\n${lines.join("\n")}`;
 		},
 	);
 }

@@ -1,9 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { recompileTopicPage } from "../topic-pages.ts";
+import { registerTextTool } from "./contract.ts";
 
 export function registerRefreshTopicPage(server: McpServer) {
-	server.registerTool(
+	registerTextTool(
+		server,
 		"refresh_topic_page",
 		{
 			title: "Refresh Topic Page",
@@ -14,22 +16,8 @@ export function registerRefreshTopicPage(server: McpServer) {
 			},
 		},
 		async ({ id }) => {
-			try {
-				const result = await recompileTopicPage(id);
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `Recompiled "${result.title}" [${result.slug}] from ${result.thought_count} source thought(s).`,
-						},
-					],
-				};
-			} catch (err: unknown) {
-				return {
-					content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
-					isError: true,
-				};
-			}
+			const result = await recompileTopicPage(id);
+			return `Recompiled "${result.title}" [${result.slug}] from ${result.thought_count} source thought(s).`;
 		},
 	);
 }

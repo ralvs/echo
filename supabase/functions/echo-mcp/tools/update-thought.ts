@@ -3,9 +3,11 @@ import { z } from "zod";
 import { updateThought } from "../../_shared/update.ts";
 import { supabase } from "../config.ts";
 import { ai } from "../model.ts";
+import { registerTextTool, ToolError } from "./contract.ts";
 
 export function registerUpdateThought(server: McpServer) {
-	server.registerTool(
+	registerTextTool(
+		server,
 		"update_thought",
 		{
 			title: "Update Thought",
@@ -40,30 +42,20 @@ export function registerUpdateThought(server: McpServer) {
 			},
 		},
 		async ({ id, content, type, topics, due_at, recurrence, priority, category }) => {
-			try {
-				const result = await updateThought(
-					{ db: supabase, ai },
-					id,
-					{ content, type, topics, due_at, recurrence, priority, category },
-					{ source: "mcp" },
-				);
+			const result = await updateThought(
+				{ db: supabase, ai },
+				id,
+				{ content, type, topics, due_at, recurrence, priority, category },
+				{ source: "mcp" },
+			);
 
-				if (result.kind === "not_found") {
-					return {
-						content: [{ type: "text" as const, text: `Thought not found: ${result.error}` }],
-						isError: true,
-					};
-				}
-
-				let text = `Updated thought ${id} to version ${result.thought.version}. Previous version ${result.previousVersion} archived.`;
-				if (result.relations.length) text += `\nRelations: ${result.relations.join("; ")}`;
-				return { content: [{ type: "text" as const, text }] };
-			} catch (err: unknown) {
-				return {
-					content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
-					isError: true,
-				};
+			if (result.kind === "not_found") {
+				throw new ToolError(`Thought not found: ${result.error}`);
 			}
+
+			let text = `Updated thought ${id} to version ${result.thought.version}. Previous version ${result.previousVersion} archived.`;
+			if (result.relations.length) text += `\nRelations: ${result.relations.join("; ")}`;
+			return text;
 		},
 	);
 }

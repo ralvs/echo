@@ -3,9 +3,11 @@ import { z } from "zod";
 import { synthesizeUserProfile } from "../../_shared/profile.ts";
 import { supabase } from "../config.ts";
 import { ai } from "../model.ts";
+import { registerTextTool } from "./contract.ts";
 
 export function registerGetProfile(server: McpServer) {
-	server.registerTool(
+	registerTextTool(
+		server,
 		"get_profile",
 		{
 			title: "Get User Profile",
@@ -21,27 +23,11 @@ export function registerGetProfile(server: McpServer) {
 			},
 		},
 		async ({ focus }) => {
-			try {
-				const result = await synthesizeUserProfile({ db: supabase, ai }, focus);
-
-				if (result.kind === "empty") {
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: "Not enough captured thoughts to build a profile yet. Capture more facts, preferences, and daily notes first.",
-							},
-						],
-					};
-				}
-
-				return { content: [{ type: "text" as const, text: result.markdown }] };
-			} catch (err: unknown) {
-				return {
-					content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
-					isError: true,
-				};
+			const result = await synthesizeUserProfile({ db: supabase, ai }, focus);
+			if (result.kind === "empty") {
+				return "Not enough captured thoughts to build a profile yet. Capture more facts, preferences, and daily notes first.";
 			}
+			return result.markdown;
 		},
 	);
 }

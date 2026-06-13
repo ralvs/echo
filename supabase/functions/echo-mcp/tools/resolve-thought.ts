@@ -1,16 +1,16 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-
 import { resolveThought } from "../../_shared/resolve.ts";
 import { supabase } from "../config.ts";
+import { preview, registerTextTool, ToolError } from "./contract.ts";
 
-function preview(thought: Record<string, unknown>): string {
-	const content = typeof thought.content === "string" ? thought.content : "";
-	return content.length > 80 ? `${content.substring(0, 80)}...` : content;
+function contentPreview(thought: Record<string, unknown>): string {
+	return preview(typeof thought.content === "string" ? thought.content : "", 80);
 }
 
 export function registerResolveThought(server: McpServer) {
-	server.registerTool(
+	registerTextTool(
+		server,
 		"resolve_thought",
 		{
 			title: "Resolve Thought",
@@ -26,50 +26,19 @@ export function registerResolveThought(server: McpServer) {
 			},
 		},
 		async ({ id, status }) => {
-			try {
-				const result = await resolveThought(supabase, id, status);
+			const result = await resolveThought(supabase, id, status);
 
-				switch (result.kind) {
-					case "not_found":
-						return {
-							content: [{ type: "text" as const, text: `Thought not found: ${result.error}` }],
-							isError: true,
-						};
-					case "recurrence_ended":
-						return {
-							content: [
-								{
-									type: "text" as const,
-									text: `Resolved recurring thought ${id} (recurrence ended):\n"${preview(result.thought)}"`,
-								},
-							],
-						};
-					case "advanced":
-						return {
-							content: [
-								{
-									type: "text" as const,
-									text: `Completed recurring thought ${id} (completion #${result.completionCount}). Next due: ${result.nextDue.toLocaleDateString()}\n"${preview(result.thought)}"`,
-								},
-							],
-						};
-					case "toggled": {
-						const metadata = (result.thought.metadata ?? {}) as Record<string, unknown>;
-						return {
-							content: [
-								{
-									type: "text" as const,
-									text: `${result.status === "resolved" ? "Resolved" : "Reopened"} thought ${id} (${metadata.type || "unknown"}):\n"${preview(result.thought)}"`,
-								},
-							],
-						};
-					}
+			switch (result.kind) {
+				case "not_found":
+					throw new ToolError(`Thought not found: ${result.error}`);
+				case "recurrence_ended":
+					return `Resolved recurring thought ${id} (recurrence ended):\n"${contentPreview(result.thought)}"`;
+				case "advanced":
+					return `Completed recurring thought ${id} (completion #${result.completionCount}). Next due: ${result.nextDue.toLocaleDateString()}\n"${contentPreview(result.thought)}"`;
+				case "toggled": {
+					const metadata = (result.thought.metadata ?? {}) as Record<string, unknown>;
+					return `${result.status === "resolved" ? "Resolved" : "Reopened"} thought ${id} (${metadata.type || "unknown"}):\n"${contentPreview(result.thought)}"`;
 				}
-			} catch (err: unknown) {
-				return {
-					content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
-					isError: true,
-				};
 			}
 		},
 	);

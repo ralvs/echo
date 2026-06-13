@@ -3,6 +3,7 @@ import { z } from "zod";
 import { type PagePreamble, searchThoughts, type ThoughtHit } from "../../_shared/search.ts";
 import { PRIORITY_LABELS, supabase } from "../config.ts";
 import { ai } from "../model.ts";
+import { preview, registerTextTool } from "./contract.ts";
 
 function formatPage(p: PagePreamble): string {
 	const label =
@@ -34,16 +35,15 @@ function formatHit(t: ThoughtHit, index: number): string {
 	if (Array.isArray(m.action_items) && m.action_items.length)
 		parts.push(`Actions: ${(m.action_items as string[]).join("; ")}`);
 	if (t.parentContent) {
-		const preview =
-			t.parentContent.length > 200 ? `${t.parentContent.substring(0, 200)}...` : t.parentContent;
-		parts.push(`Original context: ${preview}`);
+		parts.push(`Original context: ${preview(t.parentContent, 200)}`);
 	}
 	parts.push(`\n${t.content}`);
 	return parts.join("\n");
 }
 
 export function registerSearchThoughts(server: McpServer) {
-	server.registerTool(
+	registerTextTool(
+		server,
 		"search_thoughts",
 		{
 			title: "Search Thoughts",
@@ -56,37 +56,21 @@ export function registerSearchThoughts(server: McpServer) {
 			},
 		},
 		async ({ query, limit, threshold }) => {
-			try {
-				const { results, pages } = await searchThoughts({ db: supabase, ai }, query, {
-					limit,
-					threshold,
-				});
+			const { results, pages } = await searchThoughts({ db: supabase, ai }, query, {
+				limit,
+				threshold,
+			});
 
-				if (results.length === 0) {
-					return {
-						content: [{ type: "text" as const, text: `No thoughts found matching "${query}".` }],
-					};
-				}
-
-				const preamble = pages.map(formatPage).join("\n\n");
-				const header = preamble
-					? `${preamble}\n\n--- Individual Results (${results.length}) ---\n\n`
-					: `Found ${results.length} thought(s):\n\n`;
-
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `${header}${results.map(formatHit).join("\n\n")}`,
-						},
-					],
-				};
-			} catch (err: unknown) {
-				return {
-					content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
-					isError: true,
-				};
+			if (results.length === 0) {
+				return `No thoughts found matching "${query}".`;
 			}
+
+			const preamble = pages.map(formatPage).join("\n\n");
+			const header = preamble
+				? `${preamble}\n\n--- Individual Results (${results.length}) ---\n\n`
+				: `Found ${results.length} thought(s):\n\n`;
+
+			return `${header}${results.map(formatHit).join("\n\n")}`;
 		},
 	);
 }
