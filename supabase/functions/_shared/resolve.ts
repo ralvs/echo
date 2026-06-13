@@ -1,9 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { advanceRecurrence } from "./recurrence.ts";
+import { archiveThoughtVersion, getCurrentThought, writeThought } from "./thoughts-store.ts";
 import type { RecurrenceRule, ThoughtStatus } from "./types.ts";
-
-const THOUGHT_COLUMNS =
-	"id, content, metadata, version, due_at, recurrence, priority, category, created_at, updated_at";
 
 export type ResolveResult =
 	| { kind: "not_found"; error: string }
@@ -31,15 +29,8 @@ export async function resolveThought(
 	status: ThoughtStatus,
 	now: Date = new Date(),
 ): Promise<ResolveResult> {
-	const { data: current, error: fetchErr } = await db
-		.from("thoughts")
-		.select("id, content, embedding, metadata, version, created_at, due_at, recurrence")
-		.eq("id", id)
-		.single();
-
-	if (fetchErr || !current) {
-		return { kind: "not_found", error: fetchErr?.message ?? "no matching ID" };
-	}
+	const current = await getCurrentThought(db, id);
+	if (!current) return { kind: "not_found", error: "no matching ID" };
 
 	const currentMetadata = (current.metadata ?? {}) as Record<string, unknown>;
 
@@ -52,20 +43,11 @@ export async function resolveThought(
 				status: "resolved",
 				resolved_at: now.toISOString(),
 			};
-			const thought = await updateThought(db, id, { metadata, updated_at: now.toISOString() });
+			const thought = await writeThought(db, id, { metadata, updated_at: now.toISOString() });
 			return { kind: "recurrence_ended", thought };
 		}
 
-		const { error: archiveErr } = await db.from("thought_versions").insert({
-			thought_id: current.id,
-			version: current.version,
-			content: current.content,
-			embedding: current.embedding,
-			metadata: current.metadata,
-			created_at: current.created_at,
-			archived_at: now.toISOString(),
-		});
-		if (archiveErr) throw new Error(`Failed to archive version: ${archiveErr.message}`);
+		await archiveThoughtVersion(db, current, now.toISOString());
 
 		const currentDue = current.due_at ? new Date(current.due_at) : null;
 		const nextDue = advanceRecurrence(currentDue, rule, now);
@@ -78,7 +60,7 @@ export async function resolveThought(
 			completion_count: completionCount,
 		};
 
-		const thought = await updateThought(db, id, {
+		const thought = await writeThought(db, id, {
 			metadata,
 			due_at: nextDue.toISOString(),
 			version: (current.version || 1) + 1,
@@ -92,21 +74,6 @@ export async function resolveThought(
 		status,
 		...(status === "resolved" ? { resolved_at: now.toISOString() } : { resolved_at: null }),
 	};
-	const thought = await updateThought(db, id, { metadata, updated_at: now.toISOString() });
+	const thought = await writeThought(db, id, { metadata, updated_at: now.toISOString() });
 	return { kind: "toggled", status, thought };
-}
-
-async function updateThought(
-	db: SupabaseClient,
-	id: string,
-	patch: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-	const { data, error } = await db
-		.from("thoughts")
-		.update(patch)
-		.eq("id", id)
-		.select(THOUGHT_COLUMNS)
-		.single();
-	if (error) throw new Error(error.message);
-	return data as Record<string, unknown>;
 }

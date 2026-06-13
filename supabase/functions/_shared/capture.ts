@@ -121,7 +121,7 @@ export async function captureThought(
 			await insertSourceRelations(db, saved.thought.id, input.source_ids);
 		}
 
-		const relations = await runPostCapturePipeline(deps, background, saved, undefined);
+		const relations = await runCompoundingPipeline(deps, background, saved, undefined);
 		return { kind: "captured", thought: saved.thought, relations };
 	}
 
@@ -161,14 +161,14 @@ export async function captureThought(
 			await insertSourceRelations(db, child.thought.id, input.source_ids);
 		}
 
-		const relations = await runPostCapturePipeline(deps, background, child, parent.thought.id);
+		const relations = await runCompoundingPipeline(deps, background, child, parent.thought.id);
 		allRelations.push(...relations);
 	}
 
 	return { kind: "decomposed", parent: parent.thought, children, relations: allRelations };
 }
 
-type SavedThought = {
+export type SavedThought = {
 	kind: "saved";
 	thought: Thought;
 	embedding: number[];
@@ -353,12 +353,13 @@ export async function detectRelations(
 }
 
 /**
- * Compounding side effects after a thought is saved: relation detection is
- * awaited (its summaries go into the capture confirmation); topic pages, the
- * entity graph, and person-definition upserts run in the background so a
- * failed compilation can never fail a capture.
+ * Compounding side effects after a thought is saved or rewritten: relation
+ * detection is awaited (its summaries go into the confirmation); topic pages,
+ * the entity graph, and person-definition upserts run in the background so a
+ * failed compilation can never fail the write. Shared by the capture and
+ * update workflows so every write path compounds the same way.
  */
-async function runPostCapturePipeline(
+export async function runCompoundingPipeline(
 	deps: EchoDeps,
 	background: (work: Promise<unknown>) => void,
 	saved: SavedThought,

@@ -1,8 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { buildEmbeddingText, extractMetadata, getEmbedding } from "../ai.ts";
+import { updateThought } from "../../_shared/update.ts";
 import { supabase } from "../config.ts";
-import { backfillPersonAlias, getKnownPeople, upsertPerson } from "../people.ts";
+import { ai } from "../model.ts";
 
 export function registerUpdateThought(server: McpServer) {
 	server.registerTool(
@@ -10,7 +10,7 @@ export function registerUpdateThought(server: McpServer) {
 		{
 			title: "Update Thought",
 			description:
-				"Update an existing thought's content. Archives the previous version and generates a new embedding and metadata. Use this to revise daily plans, correct notes, or evolve ideas without creating duplicates.",
+				"Update an existing thought's content. Archives the previous version, re-extracts metadata, generates a new embedding, and runs relation detection. Use this to revise daily plans, correct notes, or evolve ideas without creating duplicates.",
 			inputSchema: {
 				id: z.string().describe("UUID of the thought to update"),
 				content: z.string().describe("New content for the thought"),
@@ -41,122 +41,23 @@ export function registerUpdateThought(server: McpServer) {
 		},
 		async ({ id, content, type, topics, due_at, recurrence, priority, category }) => {
 			try {
-				const { data: current, error: fetchErr } = await supabase
-					.from("thoughts")
-					.select("id, content, embedding, metadata, version, created_at")
-					.eq("id", id)
-					.single();
+				const result = await updateThought(
+					{ db: supabase, ai },
+					id,
+					{ content, type, topics, due_at, recurrence, priority, category },
+					{ source: "mcp" },
+				);
 
-				if (fetchErr || !current) {
+				if (result.kind === "not_found") {
 					return {
-						content: [
-							{
-								type: "text" as const,
-								text: `Thought not found: ${fetchErr?.message || "no matching ID"}`,
-							},
-						],
+						content: [{ type: "text" as const, text: `Thought not found: ${result.error}` }],
 						isError: true,
 					};
 				}
 
-				const { error: archiveErr } = await supabase.from("thought_versions").insert({
-					thought_id: current.id,
-					version: current.version,
-					content: current.content,
-					embedding: current.embedding,
-					metadata: current.metadata,
-					created_at: current.created_at,
-				});
-
-				if (archiveErr) {
-					return {
-						content: [
-							{
-								type: "text" as const,
-								text: `Failed to archive version: ${archiveErr.message}`,
-							},
-						],
-						isError: true,
-					};
-				}
-
-				// Extract metadata with known people so aliases resolve to canonical names
-				const knownPeople = await getKnownPeople();
-				const extracted = await extractMetadata(content, knownPeople);
-
-				// category and person_definitions are real-column / side-effect inputs,
-				// not metadata — destructure them out instead of storing them
-				const {
-					category: extractedCategory,
-					person_definitions: extractedPersonDefinitions,
-					...extractedMetadata
-				} = extracted;
-
-				const metadata = { ...extractedMetadata, source: "mcp" } as Record<string, unknown>;
-				if (type) metadata.type = type;
-				if (topics) {
-					metadata.topics =
-						typeof topics === "string"
-							? topics
-									.split(",")
-									.map((t: string) => t.trim())
-									.filter(Boolean)
-							: topics;
-				}
-
-				const effectiveCategory = category ?? extractedCategory;
-				const embeddingText = buildEmbeddingText(content, metadata, effectiveCategory);
-				const embedding = await getEmbedding(embeddingText);
-
-				const newVersion = (current.version || 1) + 1;
-				const updateRow: Record<string, unknown> = {
-					content,
-					embedding,
-					metadata,
-					version: newVersion,
-					updated_at: new Date().toISOString(),
-				};
-
-				if (due_at !== undefined) updateRow.due_at = due_at;
-				if (recurrence !== undefined) updateRow.recurrence = recurrence;
-				if (priority !== undefined) updateRow.priority = priority;
-				if (category !== undefined) updateRow.category = category;
-				else if (extractedCategory) updateRow.category = extractedCategory;
-
-				const { error: updateErr } = await supabase.from("thoughts").update(updateRow).eq("id", id);
-
-				if (updateErr) {
-					return {
-						content: [{ type: "text" as const, text: `Failed to update: ${updateErr.message}` }],
-						isError: true,
-					};
-				}
-
-				if (extractedPersonDefinitions?.length) {
-					(async () => {
-						for (const def of extractedPersonDefinitions) {
-							try {
-								const { newAliases } = await upsertPerson(def.canonical_name, def.role);
-								for (const alias of newAliases) {
-									backfillPersonAlias(alias, def.canonical_name).catch((e) =>
-										console.error(`Backfill failed for alias "${alias}":`, e),
-									);
-								}
-							} catch (e) {
-								console.error(`Person upsert failed for "${def.canonical_name}":`, e);
-							}
-						}
-					})().catch((e) => console.error("Person pipeline error:", e));
-				}
-
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: `Updated thought ${id} to version ${newVersion}. Previous version ${current.version} archived.`,
-						},
-					],
-				};
+				let text = `Updated thought ${id} to version ${result.thought.version}. Previous version ${result.previousVersion} archived.`;
+				if (result.relations.length) text += `\nRelations: ${result.relations.join("; ")}`;
+				return { content: [{ type: "text" as const, text }] };
 			} catch (err: unknown) {
 				return {
 					content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }],
