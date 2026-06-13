@@ -1,9 +1,12 @@
+import { getThoughtStats } from "@shared/stats.ts";
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 
 export async function GET() {
-	const supabase = createServiceClient();
-	const { data, error } = await supabase.rpc("get_thought_stats");
-	if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-	return NextResponse.json(data);
+	try {
+		const stats = await getThoughtStats(createServiceClient());
+		return NextResponse.json(stats);
+	} catch (err) {
+		return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+	}
 }
