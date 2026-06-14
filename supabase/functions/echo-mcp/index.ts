@@ -10,6 +10,7 @@ import { registerGetEntity } from "./tools/get-entity.ts";
 import { registerGetProfile } from "./tools/get-profile.ts";
 import { registerGetThoughtContext } from "./tools/get-thought-context.ts";
 import { registerGetTopicPage } from "./tools/get-topic-page.ts";
+import { registerGraphOverview } from "./tools/graph-overview.ts";
 import { registerLintThoughts } from "./tools/lint-thoughts.ts";
 import { registerListDue } from "./tools/list-due.ts";
 import { registerListEntities } from "./tools/list-entities.ts";
@@ -48,6 +49,7 @@ function createServer(): McpServer {
 	registerGetEntity(server);
 	registerRefreshEntityPage(server);
 	registerFindPath(server);
+	registerGraphOverview(server);
 
 	return server;
 }
