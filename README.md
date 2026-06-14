@@ -396,8 +396,11 @@ echo/
     │   │   ├── deps.ts         # EchoDeps: { db, ai } injected into every workflow
     │   │   ├── ai.ts           # All LLM schemas, prompts, and functions
     │   │   ├── capture.ts      # The capture pipeline (decomposition + compounding side effects)
+    │   │   ├── projection.ts   # Extracted metadata → { metadata, columns, embedding } (capture + update)
     │   │   ├── search.ts       # The search read path (decay, parent context, page preambles, knobs)
     │   │   ├── list-thoughts.ts    # The thought-listing filter interface (MCP tools + REST)
+    │   │   ├── relation-graph.ts   # thought_relations → { nodes, edges } (graph route + context tool)
+    │   │   ├── lint.ts             # The knowledge-base health checks (lint_thoughts tool)
     │   │   ├── relevance-gate.ts   # The auto-capture relevance gate (Stop hook + mine CLI)
     │   │   ├── page-lifecycle.ts   # Compiled-page invariants shared by topic and entity pages
     │   │   ├── resolve.ts      # Resolve-and-advance workflow

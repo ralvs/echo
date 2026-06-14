@@ -1,6 +1,6 @@
 # Domain logic lives in a runtime-neutral `_shared` layer; runtimes are adapters
 
-Capture, resolve, extraction, search, listing, the page lifecycles, and every prompt are implemented once in `supabase/functions/_shared/`, which imports nothing runtime-specific — it depends only on the `EchoDeps` (`{ db, ai }`) handed in by its caller. The two runtimes are thin adapters: Next.js (`lib/`) constructs `EchoDeps` from the Node Supabase client and the Vercel AI SDK; the Deno edge function (`echo-mcp/`) constructs it from the Deno client and a raw-fetch model adapter. ADRs 0005–0008 are all instances of this rule.
+Capture, resolve, extraction, search, listing, the page lifecycles, and every prompt are implemented once in `supabase/functions/_shared/`, which imports nothing runtime-specific — it depends only on the `EchoDeps` (`{ db, ai }`) handed in by its caller. The two runtimes are thin adapters: Next.js (`lib/`) constructs `EchoDeps` from the Node Supabase client and the Vercel AI SDK; the Deno edge function (`echo-mcp/`) constructs it from the Deno client and a raw-fetch model adapter. ADRs 0005–0008 and 0014–0016 are all instances of this rule.
 
 ## Why
 
