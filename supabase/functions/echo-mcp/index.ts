@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Hono } from "hono";
 import { registerCaptureThought } from "./tools/capture-thought.ts";
 import { registerDeleteThought } from "./tools/delete-thought.ts";
+import { registerFindPath } from "./tools/find-path.ts";
 import { registerGetEntity } from "./tools/get-entity.ts";
 import { registerGetProfile } from "./tools/get-profile.ts";
 import { registerGetThoughtContext } from "./tools/get-thought-context.ts";
@@ -46,6 +47,7 @@ function createServer(): McpServer {
 	registerListEntities(server);
 	registerGetEntity(server);
 	registerRefreshEntityPage(server);
+	registerFindPath(server);
 
 	return server;
 }
