@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	betweenness,
 	communities,
 	crossCommunityEdges,
 	shortestPath,
@@ -111,5 +112,29 @@ describe("crossCommunityEdges", () => {
 	it("returns only the inter-community bridge", () => {
 		const comm = communities(CLUSTERED);
 		expect(crossCommunityEdges(CLUSTERED, comm)).toEqual([{ source: "c", target: "x", weight: 1 }]);
+	});
+});
+
+describe("betweenness", () => {
+	it("ranks the two bridge nodes highest and isolated nodes at zero", () => {
+		const bc = betweenness(CLUSTERED);
+		expect(bc.get("iso")).toBe(0);
+		// c and x are the only link between the two triangles — every cross path
+		// routes through them, so they outrank their triangle-mates.
+		const bridge = Math.min(bc.get("c") ?? 0, bc.get("x") ?? 0);
+		for (const id of ["a", "b", "y", "z"]) {
+			expect(bridge).toBeGreaterThan(bc.get(id) ?? 0);
+		}
+	});
+
+	it("is zero for every node on a path with no intermediaries", () => {
+		// A single edge: neither endpoint lies between any other pair.
+		const pair: WeightedGraph = {
+			nodes: ["p", "q"],
+			edges: [{ source: "p", target: "q", weight: 1 }],
+		};
+		const bc = betweenness(pair);
+		expect(bc.get("p")).toBe(0);
+		expect(bc.get("q")).toBe(0);
 	});
 });

@@ -233,6 +233,79 @@ function normaliseCommunities(nodes: string[], label: Map<string, string>): Map<
 }
 
 /**
+ * Above this node count, betweenness (O(V·E)) is skipped by callers in favour
+ * of the O(E) cross-community-edge bridge proxy. Comfortably above any personal
+ * corpus; the guard is for the day one isn't.
+ */
+export const BETWEENNESS_MAX_NODES = 2000;
+
+/**
+ * Betweenness centrality via Brandes' algorithm — how often a node sits on the
+ * shortest path between two others. High betweenness marks a *bridge concept*:
+ * remove it and parts of your thinking fall out of touch. A sharper structural
+ * signal than degree (a god node is busy; a bridge is load-bearing) and the
+ * node-level complement to crossCommunityEdges.
+ *
+ * Unweighted (BFS over the topology, ignoring co-occurrence weight): for bridge
+ * detection the question is "how many paths route through here", not "how
+ * strong". Deterministic — node and neighbour iteration are id-sorted, and the
+ * accumulated dependencies are order-independent sums. Values are halved at the
+ * end because each undirected shortest path is counted from both endpoints.
+ */
+export function betweenness(graph: WeightedGraph): Map<string, number> {
+	const adj = buildWeightedAdjacency(graph);
+	const nodes = [...graph.nodes].sort(byId);
+	const cb = new Map<string, number>();
+	for (const v of nodes) cb.set(v, 0);
+
+	for (const source of nodes) {
+		const stack: string[] = [];
+		const pred = new Map<string, string[]>();
+		const sigma = new Map<string, number>(); // # shortest paths from source
+		const dist = new Map<string, number>();
+		for (const v of nodes) {
+			pred.set(v, []);
+			sigma.set(v, 0);
+			dist.set(v, -1);
+		}
+		sigma.set(source, 1);
+		dist.set(source, 0);
+
+		const queue: string[] = [source];
+		let head = 0;
+		while (head < queue.length) {
+			const v = queue[head++];
+			stack.push(v);
+			const dv = dist.get(v) ?? 0;
+			for (const { to: w } of adj.get(v) ?? []) {
+				if ((dist.get(w) ?? -1) < 0) {
+					dist.set(w, dv + 1);
+					queue.push(w);
+				}
+				if ((dist.get(w) ?? -1) === dv + 1) {
+					sigma.set(w, (sigma.get(w) ?? 0) + (sigma.get(v) ?? 0));
+					pred.get(w)?.push(v);
+				}
+			}
+		}
+
+		const delta = new Map<string, number>();
+		for (const v of nodes) delta.set(v, 0);
+		while (stack.length > 0) {
+			const w = stack.pop() as string;
+			for (const v of pred.get(w) ?? []) {
+				const c = ((sigma.get(v) ?? 0) / (sigma.get(w) ?? 1)) * (1 + (delta.get(w) ?? 0));
+				delta.set(v, (delta.get(v) ?? 0) + c);
+			}
+			if (w !== source) cb.set(w, (cb.get(w) ?? 0) + (delta.get(w) ?? 0));
+		}
+	}
+
+	for (const v of nodes) cb.set(v, (cb.get(v) ?? 0) / 2);
+	return cb;
+}
+
+/**
  * Edges that cross between communities, strongest first — the "surprising
  * connections" signal. A high-weight tie between two otherwise-separate
  * clusters (a person bridging your work and your hobby, say) is exactly the

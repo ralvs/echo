@@ -1,13 +1,20 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { type EntityNode, entityGraph, toWeightedGraph } from "../../_shared/entity-graph.ts";
-import { communities, crossCommunityEdges, weightedDegree } from "../../_shared/graph-analysis.ts";
+import {
+	BETWEENNESS_MAX_NODES,
+	betweenness,
+	communities,
+	crossCommunityEdges,
+	weightedDegree,
+} from "../../_shared/graph-analysis.ts";
 import { supabase } from "../config.ts";
 import { registerTextTool } from "./contract.ts";
 
 const MAX_GOD_NODES = 10;
 const MAX_CLUSTER_MEMBERS = 10;
 const MAX_BRIDGES = 8;
+const MAX_BRIDGE_NODES = 5;
 
 export function registerGraphOverview(server: McpServer) {
 	registerTextTool(
@@ -103,6 +110,23 @@ export function registerGraphOverview(server: McpServer) {
 					const cs = labelOf.get(community.get(e.source) ?? -1);
 					const ct = labelOf.get(community.get(e.target) ?? -1);
 					parts.push(`• ${s.name} —${e.weight}×— ${t.name}  (links "${cs}" ↔ "${ct}")`);
+				}
+			}
+
+			// Bridge concepts — the load-bearing nodes most paths route through.
+			// Skipped above the node-count guard, where it would be too costly.
+			if (graph.nodes.length <= BETWEENNESS_MAX_NODES) {
+				const bc = betweenness(weighted);
+				const bridgeNodes = [...graph.nodes]
+					.filter((n) => (bc.get(n.id) ?? 0) > 0)
+					.sort((a, b) => (bc.get(b.id) ?? 0) - (bc.get(a.id) ?? 0) || a.name.localeCompare(b.name))
+					.slice(0, MAX_BRIDGE_NODES);
+				if (bridgeNodes.length) {
+					parts.push(
+						"\n## Bridge concepts",
+						"Remove these and parts of the graph fall out of touch:",
+						...bridgeNodes.map((n) => `• ${n.name} (${n.type})`),
+					);
 				}
 			}
 
