@@ -52,14 +52,26 @@ function toGraphData(graph: RelationGraph): GraphData {
 async function entityGraphData(supabase: SupabaseClient): Promise<GraphData> {
 	const graph = await entityGraph(supabase);
 	const community = communities(toWeightedGraph(graph));
+
+	// Drop unconnected entities: a force layout can't place isolated nodes
+	// meaningfully (they scatter off-canvas), and the view is about the
+	// co-occurrence structure. Mirrors graph_overview omitting singletons.
+	const connected = new Set<string>();
+	for (const e of graph.edges) {
+		connected.add(e.source_id);
+		connected.add(e.target_id);
+	}
+
 	return {
-		nodes: graph.nodes.map((n) => ({
-			id: n.id,
-			label: n.name,
-			type: n.type,
-			created_at: "",
-			community: community.get(n.id),
-		})),
+		nodes: graph.nodes
+			.filter((n) => connected.has(n.id))
+			.map((n) => ({
+				id: n.id,
+				label: n.name,
+				type: n.type,
+				created_at: "",
+				community: community.get(n.id),
+			})),
 		links: graph.edges.map((e) => ({
 			source: e.source_id,
 			target: e.target_id,
