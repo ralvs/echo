@@ -54,7 +54,11 @@ export function KnowledgeGraph({ nodes, links, height = 480, centerNodeId, onNod
 		}
 	};
 
-	const presentTypes = [...new Set(nodes.map((n) => n.type).filter(Boolean))] as string[];
+	// Entity mode colours by community, not type, so the type legend is hidden.
+	const colorByCommunity = nodes.some((n) => n.community !== undefined);
+	const presentTypes = colorByCommunity
+		? []
+		: ([...new Set(nodes.map((n) => n.type).filter(Boolean))] as string[]);
 	const isolated = nodes.length > 0 && links.length === 0;
 
 	if (nodes.length === 0) {

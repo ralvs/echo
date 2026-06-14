@@ -1,4 +1,7 @@
+import { entityGraph, toWeightedGraph } from "@shared/entity-graph.ts";
+import { communities } from "@shared/graph-analysis.ts";
 import { corpusGraph, egoGraph, type RelationGraph } from "@shared/relation-graph.ts";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { type NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 
@@ -7,6 +10,8 @@ export type GraphNode = {
 	label: string;
 	type?: string;
 	created_at: string;
+	/** Community index, present only in entity mode (drives cluster colouring). */
+	community?: number;
 };
 
 export type GraphLink = {
@@ -39,11 +44,40 @@ function toGraphData(graph: RelationGraph): GraphData {
 	};
 }
 
+/**
+ * Render the entity co-occurrence graph, coloured by community. Reuses the
+ * shared projection + clustering — the route is just the D3-shaped renderer,
+ * the dashboard counterpart of the graph_overview MCP tool.
+ */
+async function entityGraphData(supabase: SupabaseClient): Promise<GraphData> {
+	const graph = await entityGraph(supabase);
+	const community = communities(toWeightedGraph(graph));
+	return {
+		nodes: graph.nodes.map((n) => ({
+			id: n.id,
+			label: n.name,
+			type: n.type,
+			created_at: "",
+			community: community.get(n.id),
+		})),
+		links: graph.edges.map((e) => ({
+			source: e.source_id,
+			target: e.target_id,
+			relationType: "co_occurs",
+			confidence: 1,
+		})),
+	};
+}
+
 export async function GET(req: NextRequest) {
 	const supabase = createServiceClient();
 	const params = req.nextUrl.searchParams;
 	const limit = Number(params.get("limit") || "300");
 	const thoughtId = params.get("thoughtId");
+
+	if (params.get("mode") === "entity") {
+		return NextResponse.json(await entityGraphData(supabase));
+	}
 
 	if (thoughtId) {
 		const graph = await egoGraph(supabase, thoughtId, { depth: 1, latestOnly: true });

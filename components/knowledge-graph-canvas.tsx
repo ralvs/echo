@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import type { GraphLink, GraphNode } from "@/app/api/graph/route";
-import { DEFAULT_NODE_COLOR as DEFAULT_COLOR, LINK_COLORS, TYPE_COLORS } from "@/lib/graph-colors";
+import {
+	communityColor,
+	DEFAULT_NODE_COLOR as DEFAULT_COLOR,
+	LINK_COLORS,
+	TYPE_COLORS,
+} from "@/lib/graph-colors";
 
 type InternalNode = GraphNode & {
 	x?: number;
@@ -61,7 +66,12 @@ export function KnowledgeGraphCanvas({
 			const y = node.y ?? 0;
 			const degree = node.__degree;
 			const r = Math.max(5, Math.min(14, 5 + degree * 1.4));
-			const color = TYPE_COLORS[node.type ?? ""] ?? DEFAULT_COLOR;
+			// Entity-mode nodes carry a community index and colour by cluster;
+			// thought-mode nodes colour by type.
+			const color =
+				node.community !== undefined
+					? communityColor(node.community)
+					: (TYPE_COLORS[node.type ?? ""] ?? DEFAULT_COLOR);
 			const isCenter = node.id === centerNodeId;
 
 			if (isCenter) {

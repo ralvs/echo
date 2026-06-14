@@ -22,7 +22,16 @@ export default function DashboardPage() {
 	const [stats, setStats] = useState<ThoughtStats | null>(null);
 	const [recent, setRecent] = useState<Thought[]>([]);
 	const [graph, setGraph] = useState<GraphData>({ nodes: [], links: [] });
+	const [graphMode, setGraphMode] = useState<"thoughts" | "entities">("thoughts");
 	const [loading, setLoading] = useState(true);
+
+	const loadGraph = (mode: "thoughts" | "entities") => {
+		setGraphMode(mode);
+		fetch(mode === "entities" ? "/api/graph?mode=entity" : "/api/graph")
+			.then((r) => r.json())
+			.catch(() => ({ nodes: [], links: [] }))
+			.then(setGraph);
+	};
 
 	useEffect(() => {
 		Promise.all([
@@ -235,15 +244,33 @@ export default function DashboardPage() {
 				transition={{ duration: 0.5, delay: 0.5 }}
 				className="mt-8 bg-surface-2 border border-border-subtle rounded-[var(--radius-md)] overflow-hidden"
 			>
-				<div className="px-5 pt-5 pb-4 flex items-center justify-between">
+				<div className="px-5 pt-5 pb-4 flex items-center justify-between gap-3">
 					<h2 className="text-[11px] font-mono text-text-tertiary tracking-wider uppercase">
 						Knowledge Graph
 					</h2>
-					<span className="text-[10px] font-mono text-text-tertiary/50">
-						pinch or scroll to zoom · click a node to open
-					</span>
+					<div className="flex items-center gap-1 rounded-[var(--radius-sm)] bg-surface-3 p-0.5">
+						{(["thoughts", "entities"] as const).map((mode) => (
+							<button
+								key={mode}
+								type="button"
+								onClick={() => loadGraph(mode)}
+								aria-pressed={graphMode === mode}
+								className={`px-2.5 py-1 rounded-[var(--radius-sm)] text-[10px] font-mono tracking-wide capitalize transition-colors ${
+									graphMode === mode
+										? "bg-surface-1 text-text-primary"
+										: "text-text-tertiary hover:text-text-secondary"
+								}`}
+							>
+								{mode}
+							</button>
+						))}
+					</div>
 				</div>
-				<KnowledgeGraph nodes={graph.nodes} links={graph.links} />
+				<KnowledgeGraph
+					nodes={graph.nodes}
+					links={graph.links}
+					onNodeClick={graphMode === "entities" ? () => {} : undefined}
+				/>
 			</motion.div>
 		</div>
 	);
