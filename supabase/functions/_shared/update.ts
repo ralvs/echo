@@ -9,10 +9,11 @@
  * — in particular, neither can change content without re-embedding.
  */
 
-import { buildEmbeddingText, extractMetadata } from "./ai.ts";
+import { extractMetadata } from "./ai.ts";
 import { runCompoundingPipeline, type SavedThought } from "./capture.ts";
 import type { EchoDeps } from "./deps.ts";
 import { getKnownPeople } from "./people.ts";
+import { projectThought } from "./projection.ts";
 import { archiveThoughtVersion, getCurrentThought, writeThought } from "./thoughts-store.ts";
 import type { PersonRecord, RecurrenceRule, Thought } from "./types.ts";
 
@@ -71,15 +72,15 @@ export async function updateThought(
 	const newVersion = (current.version || 1) + 1;
 	const patch: Record<string, unknown> = { version: newVersion, updated_at: now };
 
-	if (input.due_at !== undefined) patch.due_at = input.due_at;
-	if (input.recurrence !== undefined) patch.recurrence = input.recurrence;
-	if (input.priority !== undefined) patch.priority = input.priority;
-	if (input.category !== undefined) patch.category = input.category;
-
 	const contentChanged = input.content !== undefined && input.content !== current.content;
 
-	// Metadata-only patch: no re-extraction, the embedding stays valid.
+	// Metadata-only patch: no re-extraction, the embedding stays valid. Column
+	// overrides are applied directly; nothing extracted fills the gaps.
 	if (!contentChanged) {
+		if (input.due_at !== undefined) patch.due_at = input.due_at;
+		if (input.recurrence !== undefined) patch.recurrence = input.recurrence;
+		if (input.priority !== undefined) patch.priority = input.priority;
+		if (input.category !== undefined) patch.category = input.category;
 		patch.metadata = input.metadata
 			? { ...(current.metadata ?? {}), ...input.metadata }
 			: (current.metadata ?? {});
@@ -91,63 +92,34 @@ export async function updateThought(
 	const knownPeople = await getKnownPeople(db).catch(() => [] as PersonRecord[]);
 	const extracted = await extractMetadata(ai, content, knownPeople);
 
-	// Destructure column fields and person_definitions — not stored in metadata JSONB.
-	const {
-		category: extractedCategory,
-		expires_at: extractedExpiresAt,
-		event_at: extractedEventAt,
-		due_at: extractedDueAt,
-		recurrence: extractedRecurrence,
-		priority: extractedPriority,
-		person_definitions: personDefinitions,
-		...metadataFields
-	} = extracted;
-
 	const currentMetadata = (current.metadata ?? {}) as Record<string, unknown>;
-	const metadata: Record<string, unknown> = { ...metadataFields, source };
+	const carry: Record<string, unknown> = {};
 	for (const field of CARRIED_METADATA_FIELDS) {
-		if (currentMetadata[field] !== undefined) metadata[field] = currentMetadata[field];
+		if (currentMetadata[field] !== undefined) carry[field] = currentMetadata[field];
 	}
 
-	if (input.type) metadata.type = input.type;
-	if (input.topics) {
-		metadata.topics =
-			typeof input.topics === "string"
-				? input.topics
-						.split(",")
-						.map((t) => t.trim())
-						.filter(Boolean)
-				: input.topics;
-	}
-	if (input.metadata) Object.assign(metadata, input.metadata);
-
-	// Auto-set status for thoughts that became actionable (same rule as capture).
-	const effectiveDueAt = input.due_at ?? extractedDueAt;
-	if (
-		metadata.status === undefined &&
-		(metadata.type === "task" ||
-			effectiveDueAt ||
-			(Array.isArray(metadata.action_items) && metadata.action_items.length > 0))
-	) {
-		metadata.status = "open";
-	}
+	const { metadata, columns, embeddingText, personDefinitions } = projectThought(
+		content,
+		extracted,
+		input,
+		source,
+		{ carry, metadataPatch: input.metadata },
+	);
 
 	// Re-embed enriched text — the vector must always encode the new content.
-	const effectiveCategory = input.category ?? extractedCategory;
-	const embedding = await ai.embed(buildEmbeddingText(content, metadata, effectiveCategory));
+	const embedding = await ai.embed(embeddingText);
 
 	patch.content = content;
 	patch.embedding = embedding;
 	patch.metadata = metadata;
 
-	// Caller overrides win; extracted values fill gaps; otherwise leave unchanged.
-	if (input.due_at === undefined && extractedDueAt) patch.due_at = extractedDueAt;
-	if (input.recurrence === undefined && extractedRecurrence) patch.recurrence = extractedRecurrence;
-	if (input.priority === undefined && extractedPriority && extractedPriority > 0)
-		patch.priority = extractedPriority;
-	if (input.category === undefined && extractedCategory) patch.category = extractedCategory;
-	if (extractedExpiresAt) patch.expires_at = extractedExpiresAt;
-	if (extractedEventAt) patch.event_at = extractedEventAt;
+	// Patch maps the resolved columns; an absent signal leaves the column untouched.
+	if (columns.due_at != null) patch.due_at = columns.due_at;
+	if (columns.recurrence != null) patch.recurrence = columns.recurrence;
+	if (columns.priority != null) patch.priority = columns.priority;
+	if (columns.category != null) patch.category = columns.category;
+	if (columns.expires_at != null) patch.expires_at = columns.expires_at;
+	if (columns.event_at != null) patch.event_at = columns.event_at;
 
 	const thought = await writeThought(db, id, patch);
 

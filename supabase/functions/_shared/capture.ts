@@ -8,11 +8,12 @@
  * over captureThought(), so every capture source compounds the same way.
  */
 
-import { buildEmbeddingText, classifyRelation, decomposeWithLLM, extractMetadata } from "./ai.ts";
+import { classifyRelation, decomposeWithLLM, extractMetadata } from "./ai.ts";
 import type { EchoDeps } from "./deps.ts";
 import { extractEntityMentions, linkThoughtEntities } from "./entities.ts";
 import { updateEntityPagesForThought } from "./entity-pages.ts";
 import { backfillPersonAlias, getKnownPeople, upsertPerson } from "./people.ts";
+import { projectThought } from "./projection.ts";
 import { updateTopicPagesForThought } from "./topic-pages.ts";
 import type { PersonDefinition, PersonRecord, RecurrenceRule, Thought } from "./types.ts";
 
@@ -186,60 +187,25 @@ async function saveSingleThought(
 	const { db, ai } = deps;
 	const extracted = await extractMetadata(ai, text, knownPeople);
 
-	// Destructure column fields and person_definitions — not stored in metadata JSONB.
-	const {
-		category: extractedCategory,
-		expires_at: extractedExpiresAt,
-		event_at: extractedEventAt,
-		due_at: extractedDueAt,
-		recurrence: extractedRecurrence,
-		priority: extractedPriority,
-		person_definitions: personDefinitions,
-		...metadataFields
-	} = extracted;
-
-	const metadata: Record<string, unknown> = { ...metadataFields, source };
-	if (input.type) metadata.type = input.type;
-	if (input.topics) {
-		metadata.topics =
-			typeof input.topics === "string"
-				? input.topics
-						.split(",")
-						.map((t) => t.trim())
-						.filter(Boolean)
-				: input.topics;
-	}
-	if (input.memory_type) metadata.memory_type = input.memory_type;
-
-	// Auto-set status for actionable thoughts.
-	const effectiveDueAt = input.due_at || extractedDueAt;
-	if (
-		metadata.type === "task" ||
-		effectiveDueAt ||
-		(Array.isArray(metadata.action_items) && metadata.action_items.length > 0)
-	) {
-		metadata.status = "open";
-	}
+	const { metadata, columns, embeddingText, personDefinitions } = projectThought(
+		text,
+		extracted,
+		input,
+		source,
+	);
 
 	// Embed enriched text so the vector encodes topics/category/people, not just content.
-	const effectiveCategory = input.category ?? extractedCategory;
-	const embedding = await ai.embed(buildEmbeddingText(text, metadata, effectiveCategory));
+	const embedding = await ai.embed(embeddingText);
 
 	const row: Record<string, unknown> = { content: text, embedding, metadata };
 
-	// Real columns — caller overrides > extracted values.
-	if (effectiveDueAt) row.due_at = effectiveDueAt;
-	if (input.recurrence || extractedRecurrence)
-		row.recurrence = input.recurrence || extractedRecurrence;
-	if (input.priority !== undefined && input.priority !== null) {
-		row.priority = input.priority;
-	} else if (extractedPriority && extractedPriority > 0) {
-		row.priority = extractedPriority;
-	}
-	row.category = effectiveCategory ?? null;
-	if (input.expires_at) row.expires_at = input.expires_at;
-	else if (extractedExpiresAt) row.expires_at = extractedExpiresAt;
-	if (extractedEventAt) row.event_at = extractedEventAt;
+	// Insert maps the resolved columns; absent signals default to null.
+	if (columns.due_at) row.due_at = columns.due_at;
+	if (columns.recurrence) row.recurrence = columns.recurrence;
+	if (columns.priority !== null) row.priority = columns.priority;
+	row.category = columns.category;
+	if (columns.expires_at) row.expires_at = columns.expires_at;
+	if (columns.event_at) row.event_at = columns.event_at;
 	if (placement.is_bundle) row.is_bundle = true;
 	if (placement.parent_id) row.parent_id = placement.parent_id;
 	if (input.source_id) row.source_id = input.source_id;
