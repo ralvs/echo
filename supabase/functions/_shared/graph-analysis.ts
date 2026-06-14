@@ -52,6 +52,27 @@ function buildAdjacency(graph: WeightedGraph): Adjacency {
 	return adj;
 }
 
+type WeightedNeighbour = { to: string; weight: number };
+
+/**
+ * Build an undirected adjacency list carrying raw co-occurrence weight (not the
+ * inverted cost Dijkstra wants). Drops dangling/self edges; sorts neighbours by
+ * id for deterministic iteration.
+ */
+function buildWeightedAdjacency(graph: WeightedGraph): Map<string, WeightedNeighbour[]> {
+	const adj = new Map<string, WeightedNeighbour[]>();
+	for (const id of graph.nodes) adj.set(id, []);
+	for (const e of graph.edges) {
+		const from = adj.get(e.source);
+		const to = adj.get(e.target);
+		if (!from || !to || e.source === e.target) continue;
+		from.push({ to: e.target, weight: e.weight });
+		to.push({ to: e.source, weight: e.weight });
+	}
+	for (const list of adj.values()) list.sort((x, y) => byId(x.to, y.to));
+	return adj;
+}
+
 export type Path = { path: string[]; cost: number };
 
 /**
@@ -114,4 +135,121 @@ export function shortestPath(graph: WeightedGraph, from: string, to: string): Pa
 		step = prev.get(step);
 	}
 	return { path, cost: dist.get(to) ?? Number.POSITIVE_INFINITY };
+}
+
+/**
+ * Weighted degree per node — the summed co-occurrence weight of its incident
+ * edges. This is the "god node" signal: the entities woven through the most of
+ * your thinking score highest.
+ */
+export function weightedDegree(graph: WeightedGraph): Map<string, number> {
+	const degree = new Map<string, number>();
+	for (const id of graph.nodes) degree.set(id, 0);
+	for (const e of graph.edges) {
+		if (e.source === e.target) continue;
+		const s = degree.get(e.source);
+		const t = degree.get(e.target);
+		if (s === undefined || t === undefined) continue;
+		degree.set(e.source, s + e.weight);
+		degree.set(e.target, t + e.weight);
+	}
+	return degree;
+}
+
+const LABEL_PROPAGATION_MAX_ITERATIONS = 100;
+
+/**
+ * Partition the graph into communities by weighted label propagation: every
+ * node repeatedly adopts the label carrying the most incident weight among its
+ * neighbours. Cheap (no resolution parameter to tune), and good enough for a
+ * few-hundred-node personal graph; Louvain/Leiden is the upgrade path if
+ * cluster quality ever disappoints.
+ *
+ * Made deterministic so the partition is reproducible and tests can assert it:
+ * nodes are visited in sorted-id order with synchronous in-place updates, ties
+ * break to the lowest label id, and a fixed iteration cap guarantees
+ * termination. Returns a node id → community index map; isolated nodes are
+ * their own singleton community. Community indices are normalised to a
+ * contiguous range ordered by each community's lowest member id.
+ */
+export function communities(graph: WeightedGraph): Map<string, number> {
+	const adj = buildWeightedAdjacency(graph);
+	const nodes = [...graph.nodes].sort(byId);
+
+	// Label space is the node ids themselves; each node starts in its own.
+	const label = new Map<string, string>();
+	for (const id of nodes) label.set(id, id);
+
+	for (let iter = 0; iter < LABEL_PROPAGATION_MAX_ITERATIONS; iter++) {
+		let changed = false;
+		for (const id of nodes) {
+			const neighbours = adj.get(id);
+			if (!neighbours || neighbours.length === 0) continue;
+
+			const score = new Map<string, number>();
+			for (const { to, weight } of neighbours) {
+				const l = label.get(to);
+				if (l === undefined) continue;
+				score.set(l, (score.get(l) ?? 0) + weight);
+			}
+
+			// Highest summed weight wins; lowest label id breaks ties.
+			let best = label.get(id) ?? id;
+			let bestScore = -1;
+			for (const [l, s] of [...score].sort((a, b) => byId(a[0], b[0]))) {
+				if (s > bestScore) {
+					bestScore = s;
+					best = l;
+				}
+			}
+			if (best !== label.get(id)) {
+				label.set(id, best);
+				changed = true;
+			}
+		}
+		if (!changed) break;
+	}
+
+	return normaliseCommunities(nodes, label);
+}
+
+/** Relabel arbitrary label ids to contiguous indices ordered by lowest member. */
+function normaliseCommunities(nodes: string[], label: Map<string, string>): Map<string, number> {
+	const members = new Map<string, string[]>();
+	for (const id of nodes) {
+		// nodes is sorted, so the first id pushed into each group is its lowest.
+		const l = label.get(id) ?? id;
+		const group = members.get(l);
+		if (group) group.push(id);
+		else members.set(l, [id]);
+	}
+
+	const ordered = [...members.entries()].sort((a, b) => byId(a[1][0], b[1][0]));
+	const result = new Map<string, number>();
+	ordered.forEach(([, group], index) => {
+		for (const id of group) result.set(id, index);
+	});
+	return result;
+}
+
+/**
+ * Edges that cross between communities, strongest first — the "surprising
+ * connections" signal. A high-weight tie between two otherwise-separate
+ * clusters (a person bridging your work and your hobby, say) is exactly the
+ * link worth reflecting on. O(E) once communities are known.
+ */
+export function crossCommunityEdges(
+	graph: WeightedGraph,
+	community: Map<string, number>,
+): { source: string; target: string; weight: number }[] {
+	const present = new Set(graph.nodes);
+	return graph.edges
+		.filter(
+			(e) =>
+				e.source !== e.target &&
+				present.has(e.source) &&
+				present.has(e.target) &&
+				community.get(e.source) !== community.get(e.target),
+		)
+		.sort((a, b) => b.weight - a.weight || byId(a.source, b.source) || byId(a.target, b.target));
 }
