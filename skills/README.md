@@ -11,13 +11,14 @@ than adding code or schema.
 | [`research-synthesis`](research-synthesis/SKILL.md) | Pull everything Echo knows on a question and produce findings, contradictions, and a confidence assessment. |
 | [`panning-for-gold`](panning-for-gold/SKILL.md) | Sift a brain dump into a ranked idea inventory and capture only the keepers. |
 | [`entity-brief`](entity-brief/SKILL.md) | Assemble a briefing on a person, project, organization, tool, or place from the entity graph. |
+| [`graph-tour`](graph-tour/SKILL.md) | Tour the shape of the whole graph — central concepts, clusters, and surprising connections — then reflect on what's worth exploring. |
 
 ## Installing
 
 Skills are discovered from `~/.claude/skills/`. Symlink the packs you want:
 
 ```bash
-for s in meeting-synthesis research-synthesis panning-for-gold entity-brief; do
+for s in meeting-synthesis research-synthesis panning-for-gold entity-brief graph-tour; do
   ln -s "$(pwd)/skills/$s" "$HOME/.claude/skills/$s"
 done
 ```
