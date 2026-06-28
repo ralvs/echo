@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Echo — Sign in</title>
+<style>
+  :root {
+    color-scheme: dark light;
+    --bg: #0b0b0d;
+    --surface: #16161a;
+    --border: #2a2a30;
+    --text: #f2f2f3;
+    --muted: #9a9aa2;
+    --accent: #6e6ef7;
+    --accent-text: #ffffff;
+    --danger: #3a2a2a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+    padding: 24px;
+  }
+  .card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+  }
+  h1 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0 0 4px;
+  }
+  p.sub {
+    color: var(--muted);
+    font-size: 14px;
+    margin: 0 0 24px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  input {
+    width: 100%;
+    padding: 10px 12px;
+    margin-bottom: 16px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    width: 100%;
+    padding: 11px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: var(--accent-text); }
+  button.primary:disabled { opacity: 0.5; cursor: default; }
+  button.secondary {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    margin-top: 8px;
+  }
+  .error {
+    background: var(--danger);
+    color: #ffb4b4;
+    font-size: 13px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    display: none;
+  }
+  .scope-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 24px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .scope-list li { padding: 4px 0; }
+  .client-name { color: var(--text); font-weight: 600; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div id="login-view">
+      <h1>Sign in to Echo</h1>
+      <p class="sub">Required before granting access to an MCP client.</p>
+      <div class="error" id="login-error"></div>
+      <form id="login-form">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="username" required />
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required />
+        <button class="primary" type="submit" id="login-submit">Sign in</button>
+      </form>
+    </div>
+
+    <div id="consent-view" class="hidden">
+      <h1>Allow access to Echo?</h1>
+      <p class="sub"><span class="client-name" id="client-name"></span> wants to connect.</p>
+      <ul class="scope-list" id="scope-list"></ul>
+      <div class="error" id="consent-error"></div>
+      <button class="primary" id="approve-btn">Allow</button>
+      <button class="secondary" id="deny-btn">Deny</button>
+    </div>
+
+    <div id="done-view" class="hidden">
+      <h1>All set</h1>
+      <p class="sub">Redirecting back…</p>
+    </div>
+  </div>
+
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2.108.2";
+
+    // Substituted at build time by build.mjs from Vercel project env vars.
+    // Both are intentionally public (publishable key is designed to be
+    // exposed in browsers) — see README in this folder.
+    const supabase = createClient("__SUPABASE_URL__", "__ECHO_PUBLISHABLE_KEY__");
+    const authorizationId = new URLSearchParams(window.location.search).get("authorization_id");
+
+    const loginView = document.getElementById("login-view");
+    const consentView = document.getElementById("consent-view");
+    const doneView = document.getElementById("done-view");
+
+    function showError(elId, message) {
+      const el = document.getElementById(elId);
+      el.textContent = message;
+      el.style.display = "block";
+    }
+
+    function showView(view) {
+      for (const v of [loginView, consentView, doneView]) v.classList.add("hidden");
+      view.classList.remove("hidden");
+    }
+
+    async function loadAuthorization() {
+      if (!authorizationId) {
+        showView(loginView);
+        showError("login-error", "Missing authorization request. Try connecting again from Claude.");
+        document.getElementById("login-submit").disabled = true;
+        return;
+      }
+      const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
+      if (error) {
+        showError("consent-error", error.message ?? "Could not load the authorization request.");
+        showView(consentView);
+        return;
+      }
+      document.getElementById("client-name").textContent = data.client.client_name ?? data.client.client_id;
+      const list = document.getElementById("scope-list");
+      list.innerHTML = "";
+      for (const scope of data.scopes ?? []) {
+        const li = document.createElement("li");
+        li.textContent = scope;
+        list.appendChild(li);
+      }
+      showView(consentView);
+    }
+
+    async function init() {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        await loadAuthorization();
+      } else {
+        showView(loginView);
+      }
+    }
+
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const submitBtn = document.getElementById("login-submit");
+      submitBtn.disabled = true;
+      const email = document.getElementById("email").value;
+      const password = document.getElementById("password").value;
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      submitBtn.disabled = false;
+      if (error) {
+        showError("login-error", "Invalid email or password.");
+        return;
+      }
+      await loadAuthorization();
+    });
+
+    document.getElementById("approve-btn").addEventListener("click", async () => {
+      document.getElementById("approve-btn").disabled = true;
+      const { data, error } = await supabase.auth.oauth.approveAuthorization(authorizationId);
+      if (error) {
+        showError("consent-error", error.message ?? "Could not approve the request.");
+        document.getElementById("approve-btn").disabled = false;
+        return;
+      }
+      showView(doneView);
+      window.location.replace(data.redirect_url);
+    });
+
+    document.getElementById("deny-btn").addEventListener("click", async () => {
+      const { data, error } = await supabase.auth.oauth.denyAuthorization(authorizationId);
+      if (!error && data?.redirect_url) {
+        showView(doneView);
+        window.location.replace(data.redirect_url);
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>

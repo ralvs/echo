@@ -2,7 +2,8 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
+import { ECHO_OWNER_USER_ID, SUPABASE_URL, supabaseAuthClient } from "./config.ts";
 import { registerCaptureThought } from "./tools/capture-thought.ts";
 import { registerDeleteThought } from "./tools/delete-thought.ts";
 import { registerFindPath } from "./tools/find-path.ts";
@@ -55,11 +56,40 @@ function createServer(): McpServer {
 }
 
 // --- Hono App ---
-// Auth: Authorization: Bearer <publishable_key> (MCP_PUBLISHABLE_KEY secret).
+// Auth: either
+//   (a) Authorization: Bearer <MCP_PUBLISHABLE_KEY> — legacy static key, used by
+//       Claude Code / hooks / scripts via mcp-remote. Claude Desktop/iOS cannot
+//       supply this (no UI for static bearer tokens), which is why (b) exists.
+//       TODO(oauth-only): remove this path once Claude Code / hooks / scripts
+//       migrate to OAuth.
+//   (b) Authorization: Bearer <Supabase OAuth access token> — validated against
+//       Supabase Auth and required to belong to ECHO_OWNER_USER_ID. This is the
+//       path Claude Desktop/iOS use after completing the OAuth+PKCE flow against
+//       Supabase Auth's OAuth 2.1 server (see echo-consent for the login/consent UI).
 // Secret key is used only internally for DB access — never exposed in client config.
-// verify_jwt = false — Supabase gateway MCP auth support is not yet available.
+// verify_jwt = false — the checks above replace the gateway's own JWT verification.
+
+const RESOURCE_METADATA_PATH = "/echo-mcp/.well-known/oauth-protected-resource";
+const RESOURCE_METADATA_URL = `${SUPABASE_URL}/functions/v1${RESOURCE_METADATA_PATH}`;
+const MCP_RESOURCE_URL = `${SUPABASE_URL}/functions/v1/echo-mcp`;
 
 const app = new Hono().basePath("/echo-mcp");
+
+// RFC 9728 Protected Resource Metadata — unauthenticated, tells OAuth clients
+// (Claude) which authorization server to use for this MCP resource.
+app.get("/.well-known/oauth-protected-resource", (c) => {
+	return c.json({
+		resource: MCP_RESOURCE_URL,
+		authorization_servers: [`${SUPABASE_URL}/auth/v1`],
+		scopes_supported: ["openid"],
+		bearer_methods_supported: ["header"],
+	});
+});
+
+function unauthorized(c: Context) {
+	c.header("WWW-Authenticate", `Bearer resource_metadata="${RESOURCE_METADATA_URL}"`);
+	return c.json({ error: "Unauthorized" }, 401);
+}
 
 app.all("/", async (c) => {
 	if (c.req.method !== "POST") {
@@ -68,8 +98,15 @@ app.all("/", async (c) => {
 
 	const authHeader = c.req.header("authorization");
 	const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
-	if (!token || token !== Deno.env.get("MCP_PUBLISHABLE_KEY")) {
-		return c.json({ error: "Unauthorized" }, 401);
+	if (!token) {
+		return unauthorized(c);
+	}
+
+	if (token !== Deno.env.get("MCP_PUBLISHABLE_KEY")) {
+		const { data, error } = await supabaseAuthClient.auth.getUser(token);
+		if (error || !data.user || data.user.id !== ECHO_OWNER_USER_ID) {
+			return unauthorized(c);
+		}
 	}
 
 	const server = createServer();
