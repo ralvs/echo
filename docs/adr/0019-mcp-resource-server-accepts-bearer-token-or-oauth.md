@@ -1,0 +1,18 @@
+# MCP auth accepts a static bearer token or an OAuth access token, not just one
+
+`echo-mcp`'s Hono middleware now checks the `Authorization: Bearer <token>` header against two things, in order: the static `MCP_PUBLISHABLE_KEY` secret (legacy), then — if that doesn't match — Supabase Auth's `auth.getUser(token)` (OAuth). An OAuth-authenticated request is only accepted if the resulting user id equals `ECHO_OWNER_USER_ID`; everyone else gets 401, even with a otherwise-valid Supabase session. The function also exposes `/.well-known/oauth-protected-resource` (RFC 9728) so OAuth-capable clients can discover the authorization server.
+
+## Why this is recorded
+
+ADR-0011 picked a static bearer token because Claude Code (via `mcp-remote --header`) was the only client and gateway-level MCP JWT auth didn't exist. That reasoning still holds for Claude Code, but Claude Desktop, the web app, and iOS have no UI for a custom header — connecting requires a standards-compliant OAuth 2.1 client (PKCE + dynamic client registration), which Supabase Auth now ships as a beta feature. Rather than migrate everything to OAuth in one step (and break the working `mcp-remote` scripts/hooks), the resource server accepts both, with the static path marked `TODO(oauth-only)` in `index.ts` and the README for eventual removal.
+
+Single-user defense in depth, not per-user authorization: signups are disabled (`[auth].enable_signup` and `[auth.email].enable_signup` both `false` in `config.toml`), dynamic client registration is allowed (Claude self-registers, but still has to pass the owner's real login), and the `ECHO_OWNER_USER_ID` allowlist check rejects every other authenticated user. This is the same posture ADR-0011 already described — "sufficient for a single-user personal deployment" — extended to a second transport, not replaced.
+
+The OAuth login + consent screen lives in `consent/`, a standalone static page deployed to its own Vercel project, **not** as a Supabase Edge Function. Supabase's edge gateway force-rewrites `text/html` responses to `text/plain` on the default `*.supabase.co` domain (an anti-phishing guardrail) and applies a hard `sandbox` CSP — undocumented in our code, confirmed by inspecting response headers directly — so an HTML consent page cannot be served from an edge function there without a paid custom-domain add-on. The page has zero other routes and carries the same secrets the MCP function already trusts (`SUPABASE_URL`, the publishable key) — nothing additional to protect.
+
+## Consequences
+
+- Two code paths to keep in sync mentally: a request can be unauthorized for "wrong static token" or "right OAuth user but not the owner" — both return the same generic 401 + `WWW-Authenticate` challenge, so failure modes aren't distinguishable to the caller (intentional, avoids leaking which check failed).
+- `ECHO_PUBLISHABLE_KEY` is a separate secret from the legacy `MCP_PUBLISHABLE_KEY` static token — same publishable-key value as used in `consent/`, but named to avoid the Supabase CLI's blanket rejection of any custom secret starting with `SUPABASE_`.
+- Removing the static-token branch (the `TODO(oauth-only)` in `echo-mcp/index.ts`) is still pending — not done until Claude Code's `mcp-remote` config and any scripts/hooks are migrated to OAuth too.
+- If Echo becomes multi-tenant later, the `ECHO_OWNER_USER_ID` single-id allowlist is the first thing to replace — with it gone, the OAuth path already does real per-user auth via Supabase Auth, so the resource-server logic doesn't need to be rebuilt, just loosened.

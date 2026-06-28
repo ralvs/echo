@@ -529,6 +529,8 @@ vercel --prod
 | Single `thoughts` table with JSONB metadata | No fragmentation to solve; avoids fan-out routing complexity |
 | Real columns for `due_at`, `priority`, `category` | Need efficient range queries and sorting; JSONB can't be indexed the same way |
 | Bearer token auth on MCP (not Supabase JWT) | Supabase gateway doesn't support MCP-level JWT auth yet; publishable key is simpler and sufficient for personal use |
+| MCP resource server accepts static token *or* OAuth ([ADR-0019](docs/adr/0019-mcp-resource-server-accepts-bearer-token-or-oauth.md)) | Claude Desktop/web/iOS have no UI for a custom bearer header — only an OAuth 2.1 client works there; static token kept for Claude Code until migrated |
+| OAuth consent page is a standalone static Vercel project (`consent/`), not a Supabase Edge Function | Supabase's edge gateway force-rewrites `text/html` to `text/plain` on the default `*.supabase.co` domain; HTML can't be served from a function there without a paid custom domain |
 | `verify_jwt = false` in config.toml | Required because the MCP client sends a custom Bearer token, not a Supabase JWT |
 | Runtime-neutral `_shared` module layer | Capture, resolve, extraction, and page lifecycles are implemented once; Next.js and the edge function are thin adapters, so the two runtimes cannot drift |
 | Model calls behind an `Ai` seam | Two adapters already existed (Vercel AI SDK in Node, raw fetch in Deno); prompts and schemas are now a single edit, and tests inject fakes |
