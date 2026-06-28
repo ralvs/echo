@@ -169,9 +169,35 @@ The `echo-mcp` edge function implements an MCP (Model Context Protocol) server �
 
 ### Auth
 
-The MCP endpoint uses `verify_jwt = false` (Supabase gateway-level MCP auth isn't available yet). Auth is handled in the Hono middleware: the request must include `Authorization: Bearer <token>` where the token matches the `MCP_PUBLISHABLE_KEY` secret set on the edge function.
+The MCP endpoint uses `verify_jwt = false` (Supabase gateway-level MCP auth isn't available yet). Auth is handled in the Hono middleware, which accepts two kinds of bearer token:
 
-The Supabase service role key is used internally for DB access and is never exposed in client config.
+1. **Static key** (legacy) — `Authorization: Bearer <token>` where the token matches the `MCP_PUBLISHABLE_KEY` secret. This is what Claude Code uses via `mcp-remote` (see below). It cannot be used from Claude Desktop or Claude iOS — there is no UI in those clients for a custom header.
+2. **OAuth access token** — issued by Supabase Auth's OAuth 2.1 server. The token is validated with `auth.getUser()` and the resulting user must match the `ECHO_OWNER_USER_ID` secret; everyone else gets 401, even with a valid Supabase session. This is the path Claude Desktop/iOS use as a custom connector (see below).
+
+> **TODO(oauth-only):** the static key is a transitional path. Once Claude Code, hooks, and scripts are migrated to OAuth, remove the `MCP_PUBLISHABLE_KEY` branch in `echo-mcp/index.ts`.
+
+The Supabase secret key (`SUPABASE_SERVICE_ROLE_KEY`) is used internally for DB access; it's auto-injected by the Supabase platform into every edge function, never set manually. The Supabase **publishable** key is used only to validate caller-supplied OAuth tokens (`ECHO_PUBLISHABLE_KEY` — a custom secret; Supabase's CLI blocks any custom secret name starting with `SUPABASE_`, so it can't be named that) — it's safe to expose, it grants nothing on its own.
+
+The login + consent screen itself lives in **[`consent/`](consent/)**, deployed as its own standalone static page on Vercel (see that folder's README) — not as a Supabase Edge Function. Supabase's edge gateway force-rewrites `text/html` responses to `text/plain` on the default `*.supabase.co` domain (an anti-phishing guardrail) and applies a hard `sandbox` CSP, so HTML can't be served from an edge function there without paying for a custom domain.
+
+#### One-time Supabase project setup for OAuth
+
+Done once in the dashboard (config.toml only governs local dev):
+
+1. **Authentication → Providers → Email**: disable "Allow new users to sign up".
+2. Deploy `consent/` to Vercel first (see [`consent/README.md`](consent/README.md)) to get its URL.
+3. **Authentication → URL Configuration**: set Site URL to the deployed `consent/` URL (e.g. `https://echo-consent.vercel.app`).
+4. **Authentication → OAuth Server**: enable it; set authorization path to `/` (the consent project has only one page); enable dynamic client registration (safe — login still requires the owner's password, and the resource server allowlists only the owner's user id).
+5. **Authentication → Users**: add the one owner user (email + strong password). Copy its UUID.
+6. `supabase secrets set ECHO_OWNER_USER_ID=<uuid> ECHO_PUBLISHABLE_KEY=<publishable key from API settings>`.
+7. `supabase functions deploy echo-mcp`.
+
+#### Add Echo as a custom connector (Claude Desktop / iOS)
+
+1. claude.ai → Settings → Connectors → Add custom connector.
+2. URL: `https://<project-ref>.supabase.co/functions/v1/echo-mcp`.
+3. Claude opens a browser to the consent page (`consent/`, on Vercel) → log in with the owner email/password → **Allow**.
+4. The connector is now available in Claude Desktop, web, and — once added on claude.ai — automatically on Claude iOS/Android too. Custom connectors require a paid Claude plan (Pro/Max/Team/Enterprise).
 
 ### Available tools
 
@@ -478,14 +504,21 @@ supabase db push
 # Deploy edge function
 supabase functions deploy echo-mcp
 
-# Set secrets
+# Set secrets — note: anything starting with SUPABASE_ is rejected by the CLI,
+# because SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are auto-injected already.
 supabase secrets set MCP_PUBLISHABLE_KEY=<value>
 supabase secrets set AI_GATEWAY_API_KEY=<value>
-supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<value>
+supabase secrets set ECHO_PUBLISHABLE_KEY=<your sb_publishable_... key>
+supabase secrets set ECHO_OWNER_USER_ID=<value>
+
+# Deploy the OAuth consent page (its own standalone Vercel project — see consent/README.md)
+cd consent && vercel --prod && cd ..
 
 # Deploy frontend to Vercel
 vercel --prod
 ```
+
+`SUPABASE_SERVICE_ROLE_KEY` needs no action here — Supabase auto-injects it into every edge function. If you ever rotate it project-wide, do that from **API Keys → Secret keys** in the dashboard; there's nothing to set via the CLI.
 
 ---
 

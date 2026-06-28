@@ -171,13 +171,26 @@ Replace `/path/to/echo` in Step 2a with the absolute path to this repo.
 
 ## 3. Echo MCP server
 
-The Echo MCP server exposes Echo tools to Claude directly, enabling `capture_thought`, `search_thoughts`, `list_thoughts`, and others in both Claude Code and Desktop chat.
+The Echo MCP server exposes Echo tools to Claude directly, enabling `capture_thought`, `search_thoughts`, `list_thoughts`, and others in Claude Code, Claude Desktop, Claude web, and Claude iOS/Android.
 
-The server is a Supabase Edge Function deployed at the project's Supabase URL. It uses `mcp-remote` to bridge the HTTP endpoint to Claude's MCP protocol.
+The server is a Supabase Edge Function deployed at the project's Supabase URL (Streamable HTTP). It supports two auth modes — pick based on which Claude surface you're configuring.
 
-### How to install
+### Claude Desktop / web / iOS / Android — custom connector (OAuth)
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Claude Desktop) or the equivalent config for your Claude client:
+Desktop, web, and the mobile apps only support OAuth-based custom connectors — there's no UI to paste a static bearer token. Echo's edge function doubles as an OAuth-protected resource server backed by Supabase Auth's OAuth 2.1 server.
+
+1. claude.ai → **Settings → Connectors → Add custom connector**.
+2. URL: `https://<your-supabase-project>.supabase.co/functions/v1/echo-mcp`.
+3. A browser window opens at Echo's login + consent page. Sign in with the single owner account and click **Allow**.
+4. Once added on claude.ai, the connector is also available on Claude iOS/Android automatically. Requires a paid Claude plan (Pro/Max/Team/Enterprise).
+
+Behind the scenes: the edge function returns `401` + a `WWW-Authenticate` header pointing Claude at `/.well-known/oauth-protected-resource`; Claude discovers Supabase's OAuth server from there, self-registers via dynamic client registration, and runs a normal OAuth+PKCE flow. The resulting access token is validated against Supabase Auth and checked against the `ECHO_OWNER_USER_ID` allowlist on every request — only the project owner's account can ever reach the tools, regardless of how many OAuth clients register themselves.
+
+### Claude Code CLI — `mcp-remote` (legacy static token)
+
+Claude Code can attach a custom header, so it keeps using a static bearer token via `mcp-remote`. This path still works and is unaffected by the OAuth setup above.
+
+Add to `~/.claude/settings.json`:
 
 ```json
 {
@@ -195,8 +208,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (Claude
 ```
 
 - **`mcp-remote`** must be installed: `npm install -g mcp-remote`
-- **MCP token** is the bearer token accepted by the `echo-mcp` edge function. Generate one in the Echo settings or use a Supabase service role key for local dev.
-- For **Claude Code CLI**, add the same `mcpServers` block to `~/.claude/settings.json` instead.
+- **MCP token** is the `MCP_PUBLISHABLE_KEY` secret set on the `echo-mcp` edge function.
+- **TODO(oauth-only):** this is a transitional path. Once Claude Code supports OAuth for HTTP MCP servers end-to-end in your workflow (hooks/scripts included), migrate this to OAuth too and remove the static-key branch from `echo-mcp/index.ts`.
 
 ### Available tools
 
