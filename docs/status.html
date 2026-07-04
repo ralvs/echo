@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Echo — Project Status · July 4, 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Overpass+Mono:wght@300..700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --s0: #0c0b0a; --s1: #141311; --s2: #1c1a17; --s3: #252320;
+    --amber: #d4a052; --amber-b: #e8b86d; --amber-d: #9a7339;
+    --txt: #e8e4de; --txt2: #9a9589; --txt3: #6b665c;
+    --border: rgba(154,149,137,0.14); --border-2: rgba(154,149,137,0.24);
+    --green: #5b9a6b; --red: #b85450; --blue: #5a8fa8; --purple: #c4a8e0;
+    --navy: #0f0f1a; --t-blue: #4E79A7; --t-orange: #F28E2B;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { color-scheme: dark; scroll-behavior: smooth; }
+  body {
+    background: var(--s0); color: var(--txt);
+    font-family: "Outfit", sans-serif; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 56px 32px 96px; }
+  .mono { font-family: "Overpass Mono", monospace; }
+
+  header h1 { font-family: "Instrument Serif", serif; font-weight: 400; font-size: 52px; letter-spacing: -0.01em; }
+  header h1 em { color: var(--amber-b); font-style: italic; }
+  .sub { color: var(--txt2); font-size: 15px; margin-top: 6px; max-width: 640px; }
+  .stamp { font-family: "Overpass Mono", monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt3); margin-bottom: 14px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 40px 0 8px; }
+  .kpi { background: var(--s2); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+  .kpi .n { font-family: "Instrument Serif", serif; font-size: 38px; line-height: 1; color: var(--amber-b); }
+  .kpi .l { font-family: "Overpass Mono", monospace; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt3); margin-top: 8px; }
+
+  section { margin-top: 56px; }
+  h2 { font-family: "Instrument Serif", serif; font-weight: 400; font-size: 28px; margin-bottom: 4px; }
+  .h2sub { color: var(--txt2); font-size: 13.5px; margin-bottom: 20px; }
+  .rule { height: 1px; background: linear-gradient(90deg, var(--amber-d), transparent); margin: 10px 0 22px; opacity: .5; }
+
+  .badge { display: inline-block; font-family: "Overpass Mono", monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; vertical-align: 2px; }
+  .b-done { background: rgba(91,154,107,.15); color: #7fbf92; }
+  .b-run  { background: rgba(212,160,82,.16); color: var(--amber-b); }
+  .b-next { background: rgba(90,143,168,.16); color: #7bb8d4; }
+  .b-park { background: rgba(154,149,137,.14); color: var(--txt2); }
+  .b-you  { background: rgba(184,84,80,.16); color: #d98a86; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .card { background: var(--s2); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; }
+  .card h3 { font-size: 15.5px; font-weight: 600; margin-bottom: 6px; }
+  .card p { color: var(--txt2); font-size: 13.5px; }
+  .card .path { font-family: "Overpass Mono", monospace; font-size: 11px; color: var(--amber-d); display: block; margin-top: 10px; }
+
+  /* timeline */
+  .tl { position: relative; padding-left: 26px; }
+  .tl::before { content: ""; position: absolute; left: 7px; top: 6px; bottom: 6px; width: 1px; background: var(--border-2); }
+  .tl-item { position: relative; padding: 0 0 26px; }
+  .tl-item:last-child { padding-bottom: 0; }
+  .tl-item::before { content: ""; position: absolute; left: -23px; top: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--s3); border: 2px solid var(--txt3); }
+  .tl-item.done::before { background: var(--green); border-color: var(--green); }
+  .tl-item.run::before  { background: var(--amber); border-color: var(--amber); box-shadow: 0 0 0 4px rgba(212,160,82,.15); }
+  .tl-item h3 { font-size: 16px; font-weight: 600; }
+  .tl-item p { color: var(--txt2); font-size: 13.5px; margin-top: 4px; max-width: 760px; }
+  .tl-item .why { margin-top: 8px; padding: 10px 14px; background: var(--s1); border-left: 2px solid var(--amber-d); border-radius: 0 8px 8px 0; font-size: 13px; color: var(--txt2); max-width: 760px; }
+  .tl-item .why b { color: var(--txt); font-weight: 600; }
+
+  /* auth diagram */
+  .diagram { background: var(--navy); border: 1px solid var(--border); border-radius: 12px; padding: 28px 24px; overflow-x: auto; }
+  .diagram svg { display: block; margin: 0 auto; min-width: 640px; }
+
+  /* backlog table */
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { font-family: "Overpass Mono", monospace; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--txt3); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border-2); }
+  td { padding: 12px; border-bottom: 1px solid var(--border); color: var(--txt2); vertical-align: top; }
+  td:first-child { color: var(--txt); font-weight: 500; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+
+  .hypo { background: linear-gradient(135deg, rgba(196,168,224,.07), transparent 60%); border: 1px solid rgba(196,168,224,.25); border-radius: 12px; padding: 22px 24px; }
+  .hypo h3 { color: var(--purple); font-size: 15px; margin-bottom: 8px; }
+  .hypo p { color: var(--txt2); font-size: 13.5px; max-width: 820px; }
+  .hypo .ev { font-family: "Overpass Mono", monospace; font-size: 11.5px; color: var(--txt3); margin-top: 10px; }
+
+  .foot { margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; color: var(--txt3); font-family: "Overpass Mono", monospace; font-size: 11px; }
+
+  @media (max-width: 760px) {
+    .kpis, .grid2 { grid-template-columns: 1fr 1fr; }
+    header h1 { font-size: 38px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="stamp">Project status · July 4, 2026</div>
+    <h1>Echo, <em>right now</em></h1>
+    <p class="sub">One page for humans: what shipped, what was decided, what runs next, and the one thing only Renan can click.</p>
+  </header>
+
+  <div class="kpis">
+    <div class="kpi"><div class="n">6</div><div class="l">commits shipped today</div></div>
+    <div class="kpi"><div class="n">137</div><div class="l">tests passing</div></div>
+    <div class="kpi"><div class="n">0</div><div class="l">DB security warnings*</div></div>
+    <div class="kpi"><div class="n">3</div><div class="l">tasks queued, in order</div></div>
+  </div>
+  <p style="font-family:'Overpass Mono',monospace;font-size:10.5px;color:var(--txt3);margin-top:8px;">* function-level; one manual auth toggle remains — see “Your move”.</p>
+
+  <section>
+    <h2>Shipped today <span class="badge b-done">done</span></h2>
+    <div class="rule"></div>
+    <div class="tl">
+      <div class="tl-item done">
+        <h3>Database hardening, live</h3>
+        <p>The three <span class="mono">SECURITY DEFINER</span> functions (<span class="mono">upsert_entity</span>, <span class="mono">upsert_entity_edge</span>, <span class="mono">get_thought_stats</span>) were callable by anyone with the public API key. Migration <span class="mono">00024</span> revoked public execute and pinned the mutable <span class="mono">search_path</span>. Applied to production, advisors verified clean, capture flow re-tested.</p>
+      </div>
+      <div class="tl-item done">
+        <h3>Graphify-style knowledge graph</h3>
+        <p>The dashboard graph canvas now speaks Graphify’s visual language — Tableau-10 palette on deep navy, node size by √degree, labels only on hubs, dashed low-confidence edges — plus a full interactive sidebar: node search, click-to-hide cluster legend, and a node inspector with neighbors.</p>
+      </div>
+      <div class="tl-item done">
+        <h3>Backlog reevaluated, decisions grilled</h3>
+        <p>Both open handoffs were re-verified against reality. The iOS/OAuth work: already done. What remained was interrogated one branch at a time and locked in as ADR-0020, an amended plan for the legacy token, and a measurement-first test strategy. Glossary seeded in <span class="mono">CONTEXT.md</span> (Owner, Thought, Entity, Community).</p>
+      </div>
+      <div class="tl-item done">
+        <h3>Repo cleanup</h3>
+        <p>Stale demo pages deleted, <span class="mono">deno.lock</span> tracked, edge-function <span class="mono">node_modules</span> ignored.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>How auth works now</h2>
+    <p class="h2sub">Everything converges on one rule: <b style="color:var(--txt)">Echo trusts exactly one person — the Owner</b> — on every transport.</p>
+    <div class="diagram">
+      <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Overpass Mono, monospace">
+        <!-- clients -->
+        <g>
+          <rect x="20" y="30" width="170" height="52" rx="9" fill="#1a1a2e" stroke="#4E79A7" stroke-width="1"/>
+          <text x="105" y="52" fill="#e0e0e0" font-size="12" text-anchor="middle">Claude (iOS / Desktop)</text>
+          <text x="105" y="69" fill="#7bb8d4" font-size="10" text-anchor="middle">OAuth 2.1 + PKCE</text>
+
+          <rect x="20" y="122" width="170" height="52" rx="9" fill="#1a1a2e" stroke="#F28E2B" stroke-width="1"/>
+          <text x="105" y="144" fill="#e0e0e0" font-size="12" text-anchor="middle">Browser (dashboard)</text>
+          <text x="105" y="161" fill="#F28E2B" font-size="10" text-anchor="middle">login → session cookie</text>
+
+          <rect x="20" y="214" width="170" height="52" rx="9" fill="#1a1a2e" stroke="#59A14F" stroke-width="1"/>
+          <text x="105" y="236" fill="#e0e0e0" font-size="12" text-anchor="middle">Hooks &amp; scripts (local)</text>
+          <text x="105" y="253" fill="#59A14F" font-size="10" text-anchor="middle">service-role key</text>
+        </g>
+        <!-- arrows -->
+        <g stroke="#9a9589" stroke-width="1" fill="none" opacity="0.7">
+          <path d="M190 56 H 268"/><path d="M268 56 v 0"/>
+          <path d="M190 148 H 268"/>
+          <path d="M190 240 H 460 V 208"/>
+        </g>
+        <g fill="#9a9589" opacity="0.7">
+          <polygon points="268,52 276,56 268,60"/>
+          <polygon points="268,144 276,148 268,152"/>
+          <polygon points="456,208 460,200 464,208"/>
+        </g>
+        <!-- gates -->
+        <g>
+          <rect x="278" y="30" width="180" height="52" rx="9" fill="#141311" stroke="rgba(154,149,137,.4)"/>
+          <text x="368" y="52" fill="#e8e4de" font-size="12" text-anchor="middle">echo-mcp gate</text>
+          <text x="368" y="69" fill="#9a9589" font-size="10" text-anchor="middle">getUser(token) → Owner?</text>
+
+          <rect x="278" y="122" width="180" height="52" rx="9" fill="#141311" stroke="rgba(154,149,137,.4)" stroke-dasharray="4 3"/>
+          <text x="368" y="144" fill="#e8e4de" font-size="12" text-anchor="middle">requireOwner()</text>
+          <text x="368" y="161" fill="#9a9589" font-size="10" text-anchor="middle">next: ADR-0020, 4 API routes</text>
+        </g>
+        <g stroke="#9a9589" stroke-width="1" fill="none" opacity="0.7">
+          <path d="M458 56 H 530 V 118"/>
+          <path d="M458 148 H 530"/>
+        </g>
+        <g fill="#9a9589" opacity="0.7">
+          <polygon points="526,118 530,126 534,118"/>
+          <polygon points="530,144 538,148 530,152"/>
+        </g>
+        <!-- db -->
+        <g>
+          <rect x="470" y="126" width="230" height="82" rx="10" fill="#0c1420" stroke="#4E79A7" stroke-width="1.2"/>
+          <text x="585" y="152" fill="#e0e0e0" font-size="13" text-anchor="middle">Supabase · thoughts + graph</text>
+          <text x="585" y="171" fill="#7bb8d4" font-size="10" text-anchor="middle">RLS deny-by-default</text>
+          <text x="585" y="188" fill="#7bb8d4" font-size="10" text-anchor="middle">RPCs: service_role only (00024)</text>
+        </g>
+        <!-- killed path -->
+        <g opacity="0.85">
+          <rect x="278" y="238" width="180" height="40" rx="9" fill="none" stroke="#b85450" stroke-dasharray="5 4"/>
+          <text x="368" y="255" fill="#d98a86" font-size="11" text-anchor="middle">static bearer token</text>
+          <text x="368" y="270" fill="#b85450" font-size="9.5" text-anchor="middle">being deleted right now ↻</text>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <h2>The queue</h2>
+    <p class="h2sub">Decided, ordered, and each one launchable as its own session. Nothing here is up for re-debate — the “why” is recorded.</p>
+    <div class="tl">
+      <div class="tl-item run">
+        <h3>Delete the legacy static token <span class="badge b-run">running now</span></h3>
+        <p>Remove the shared-secret path from the MCP server so OAuth is the only way in. Kills the timing-attack finding outright; nothing uses the old path anymore.</p>
+      </div>
+      <div class="tl-item">
+        <h3>Test suite: measure before deciding <span class="badge b-next">next up</span></h3>
+        <p>Modeled on the <b>lore</b> project: a golden-query retrieval scoreboard (nDCG@10 / hit-rate@3 against the live corpus), skip-safe DB integration tests on a local Supabase stack — including a regression test that the hardened RPCs stay locked — and an opt-in perf harness that says when derive-on-demand graph analytics stops being enough.</p>
+        <div class="why"><b>Why first:</b> the retrieval work below is parked <i>behind</i> this. No redesign until a number says where it hurts.</div>
+      </div>
+      <div class="tl-item">
+        <h3>Dashboard login + Vercel deploy <span class="badge b-next">queued</span></h3>
+        <p>ADR-0020: same Owner account as MCP, real check inside each API route (<span class="mono">requireOwner()</span>), middleware only redirects to <span class="mono">/login</span>. Then the dashboard finally goes public-URL, private-access.</p>
+      </div>
+      <div class="tl-item">
+        <h3>Retrieval upgrade <span class="badge b-park">parked, on purpose</span></h3>
+        <p>The original “make Echo better at saving &amp; retrieving” goal. Waiting on eval numbers from the test suite.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The retrieval hypothesis</h2>
+    <div class="rule"></div>
+    <div class="hypo">
+      <h3>It’s probably not the search — it’s the aliases and the missing context.</h3>
+      <p>At ~50 thoughts, semantic search rarely misses outright. The bet: quality degrades from <b style="color:var(--txt)">capture-side rot</b> (the same person or project saved under different names fragments the graph) and <b style="color:var(--txt)">flat results</b> (a thought comes back without its neighbors — the decision that superseded it, the entity’s other mentions). If the eval confirms this, the fix is alias-safe entity resolution at capture time plus graph context attached to search results — not a fancier retriever.</p>
+      <p class="ev">evidence: alias fragmentation already forced migration 00020 (“fix_people_aliases”) · a thought literally reads “Echo (originally called Engram)”</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Your move <span class="badge b-you">manual</span></h2>
+    <div class="rule"></div>
+    <div class="grid2">
+      <div class="card">
+        <h3>Enable leaked-password protection</h3>
+        <p>One toggle in the Supabase Auth settings. The Owner password already guards MCP login and will soon guard the dashboard too — it deserves the HaveIBeenPwned check.</p>
+        <span class="path">Supabase → Auth → Passwords → “Prevent leaked passwords”</span>
+      </div>
+      <div class="card">
+        <h3>Write the golden queries (when asked)</h3>
+        <p>The test-suite session will interview you for ~15–20 real questions about your own data and what should come back. Only you know the right answers — that’s the whole point of the scoreboard.</p>
+        <span class="path">eval-queries.echo.json · private, never committed</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <span>echo · main @ 76d164b</span>
+    <span>decisions: ADR-0019 · ADR-0020 · CONTEXT.md</span>
+  </div>
+
+</div>
+</body>
+</html>
