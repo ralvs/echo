@@ -1,10 +1,10 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphData, GraphLink, GraphNode } from "@/app/api/graph/route";
-import { TYPE_COLORS } from "@/lib/graph-colors";
+import { type GraphGroup, GraphSidebar } from "@/components/graph-sidebar";
+import { communityColor, DEFAULT_NODE_COLOR, TYPE_COLORS } from "@/lib/graph-colors";
 
 const KnowledgeGraphCanvas = dynamic(
 	() =>
@@ -27,16 +27,30 @@ type Props = {
 	links: GraphLink[];
 	height?: number;
 	centerNodeId?: string;
-	onNodeClick?: (node: GraphNode) => void;
 };
 
-export function KnowledgeGraph({ nodes, links, height = 480, centerNodeId, onNodeClick }: Props) {
-	const containerRef = useRef<HTMLDivElement>(null);
+function endpointId(endpoint: GraphLink["source"]): string {
+	// force-graph mutates link endpoints from id strings into node objects.
+	return typeof endpoint === "string" ? endpoint : (endpoint as GraphNode).id;
+}
+
+function groupKey(node: GraphNode): string | number {
+	return node.community !== undefined ? node.community : (node.type ?? "unknown");
+}
+
+export function KnowledgeGraph({ nodes, links, height = 480, centerNodeId }: Props) {
+	const canvasBoxRef = useRef<HTMLDivElement>(null);
 	const [width, setWidth] = useState<number | undefined>(undefined);
-	const router = useRouter();
+	const [hiddenGroups, setHiddenGroups] = useState<Set<string | number>>(new Set());
+	const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+	const [focusRequest, setFocusRequest] = useState<{ id: string; token: number } | undefined>();
+
+	const mode: "thoughts" | "entities" = nodes.some((n) => n.community !== undefined)
+		? "entities"
+		: "thoughts";
 
 	useEffect(() => {
-		const el = containerRef.current;
+		const el = canvasBoxRef.current;
 		if (!el) return;
 		const observer = new ResizeObserver(([entry]) => {
 			setWidth(entry.contentRect.width);
@@ -46,19 +60,70 @@ export function KnowledgeGraph({ nodes, links, height = 480, centerNodeId, onNod
 		return () => observer.disconnect();
 	}, []);
 
-	const handleNodeClick = (node: GraphNode) => {
-		if (onNodeClick) {
-			onNodeClick(node);
-		} else {
-			router.push(`/thoughts/${node.id}`);
+	// Switching between thought/entity datasets invalidates selection & toggles.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: reset is keyed on the dataset itself
+	useEffect(() => {
+		setHiddenGroups(new Set());
+		setSelectedNodeId(null);
+		setFocusRequest(undefined);
+	}, [nodes]);
+
+	const groups = useMemo<GraphGroup[]>(() => {
+		const counts = new Map<string | number, number>();
+		for (const node of nodes) {
+			const key = groupKey(node);
+			counts.set(key, (counts.get(key) ?? 0) + 1);
 		}
+		return [...counts.entries()]
+			.sort((a, b) => b[1] - a[1])
+			.map(([key, count]) => ({
+				key,
+				count,
+				label: typeof key === "number" ? `Cluster ${key + 1}` : key.replace(/_/g, " "),
+				color:
+					typeof key === "number" ? communityColor(key) : (TYPE_COLORS[key] ?? DEFAULT_NODE_COLOR),
+			}));
+	}, [nodes]);
+
+	const visibleNodes = useMemo(
+		() => nodes.filter((n) => !hiddenGroups.has(groupKey(n))),
+		[nodes, hiddenGroups],
+	);
+
+	const visibleLinks = useMemo(() => {
+		if (hiddenGroups.size === 0) return links;
+		const visible = new Set(visibleNodes.map((n) => n.id));
+		return links.filter(
+			(l) => visible.has(endpointId(l.source)) && visible.has(endpointId(l.target)),
+		);
+	}, [links, visibleNodes, hiddenGroups]);
+
+	const selectedNode = useMemo(
+		() => visibleNodes.find((n) => n.id === selectedNodeId) ?? null,
+		[visibleNodes, selectedNodeId],
+	);
+
+	const handleToggleGroup = (key: string | number) => {
+		setHiddenGroups((prev) => {
+			const next = new Set(prev);
+			if (next.has(key)) {
+				next.delete(key);
+			} else {
+				next.add(key);
+			}
+			return next;
+		});
 	};
 
-	// Entity mode colours by community, not type, so the type legend is hidden.
-	const colorByCommunity = nodes.some((n) => n.community !== undefined);
-	const presentTypes = colorByCommunity
-		? []
-		: ([...new Set(nodes.map((n) => n.type).filter(Boolean))] as string[]);
+	const handleSelectNode = (node: GraphNode) => {
+		setSelectedNodeId(node.id);
+		setFocusRequest((prev) => ({ id: node.id, token: (prev?.token ?? 0) + 1 }));
+	};
+
+	const handleCanvasClick = (node: GraphNode) => {
+		setSelectedNodeId(node.id);
+	};
+
 	const isolated = nodes.length > 0 && links.length === 0;
 
 	if (nodes.length === 0) {
@@ -73,48 +138,40 @@ export function KnowledgeGraph({ nodes, links, height = 480, centerNodeId, onNod
 	}
 
 	return (
-		<div ref={containerRef} className="relative overflow-hidden rounded-[var(--radius-sm)]">
-			{width && (
-				<KnowledgeGraphCanvas
-					nodes={nodes}
-					links={links}
-					onNodeClick={handleNodeClick}
-					height={height}
-					width={width}
-					centerNodeId={centerNodeId}
-				/>
-			)}
+		<div className="flex overflow-hidden rounded-[var(--radius-sm)]" style={{ height }}>
+			<div ref={canvasBoxRef} className="relative flex-1 min-w-0">
+				{!!width && (
+					<KnowledgeGraphCanvas
+						nodes={visibleNodes}
+						links={visibleLinks}
+						onNodeClick={handleCanvasClick}
+						height={height}
+						width={width}
+						centerNodeId={centerNodeId}
+						selectedNodeId={selectedNodeId ?? undefined}
+						focusRequest={focusRequest}
+					/>
+				)}
 
-			{isolated && (
-				<div className="absolute inset-0 flex items-end justify-center pb-12 pointer-events-none">
-					<p className="text-[10px] font-mono text-text-tertiary/60 text-center">
-						Connections form automatically as you capture more thoughts.
-					</p>
-				</div>
-			)}
-
-			{/* Type legend */}
-			{presentTypes.length > 0 && (
-				<div className="absolute bottom-3 left-3 flex flex-wrap gap-1.5 pointer-events-none">
-					{presentTypes.map((type) => (
-						<div
-							key={type}
-							className="flex items-center gap-1.5 bg-surface-0/85 backdrop-blur-sm px-2 py-[3px] rounded text-[9px] font-mono text-text-tertiary tracking-wide"
-						>
-							<span
-								className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-								style={{ backgroundColor: TYPE_COLORS[type] ?? "#6b665c" }}
-							/>
-							{type.replace(/_/g, " ")}
-						</div>
-					))}
-				</div>
-			)}
-
-			{/* Stats badge */}
-			<div className="absolute bottom-3 right-3 text-[9px] font-mono text-text-tertiary bg-surface-0/85 backdrop-blur-sm px-2 py-[3px] rounded pointer-events-none">
-				{nodes.length} nodes · {links.length} edges
+				{isolated && (
+					<div className="absolute inset-0 flex items-end justify-center pb-12 pointer-events-none">
+						<p className="text-[10px] font-mono text-text-tertiary/60 text-center">
+							Connections form automatically as you capture more thoughts.
+						</p>
+					</div>
+				)}
 			</div>
+
+			<GraphSidebar
+				nodes={nodes}
+				links={links}
+				mode={mode}
+				groups={groups}
+				hiddenGroups={hiddenGroups}
+				onToggleGroup={handleToggleGroup}
+				selectedNode={selectedNode}
+				onSelectNode={handleSelectNode}
+			/>
 		</div>
 	);
 }

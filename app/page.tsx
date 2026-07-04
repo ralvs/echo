@@ -266,11 +266,7 @@ export default function DashboardPage() {
 						))}
 					</div>
 				</div>
-				<KnowledgeGraph
-					nodes={graph.nodes}
-					links={graph.links}
-					onNodeClick={graphMode === "entities" ? () => {} : undefined}
-				/>
+				<KnowledgeGraph nodes={graph.nodes} links={graph.links} />
 			</motion.div>
 		</div>
 	);

@@ -31,6 +31,9 @@ type Props = {
 	height: number;
 	width: number;
 	centerNodeId?: string;
+	selectedNodeId?: string;
+	/** Pan/zoom to a node; token distinguishes repeat requests for the same id. */
+	focusRequest?: { id: string; token: number };
 };
 
 // Graphify-style sqrt-degree sizing (15 + sqrt(degree) * 5 capped at 45 in
@@ -46,9 +49,12 @@ export function KnowledgeGraphCanvas({
 	height,
 	width,
 	centerNodeId,
+	selectedNodeId,
+	focusRequest,
 }: Props) {
 	// biome-ignore lint/suspicious/noExplicitAny: force-graph ref type is complex
 	const graphRef = useRef<any>(null);
+	const handledFocusToken = useRef<number | undefined>(undefined);
 
 	const degreeMap = useMemo(() => {
 		const map = new Map<string, number>();
@@ -84,7 +90,7 @@ export function KnowledgeGraphCanvas({
 				node.community !== undefined
 					? communityColor(node.community)
 					: (TYPE_COLORS[node.type ?? ""] ?? DEFAULT_COLOR);
-			const isCenter = node.id === centerNodeId;
+			const isCenter = node.id === centerNodeId || node.id === selectedNodeId;
 
 			if (isCenter) {
 				ctx.beginPath();
@@ -129,7 +135,7 @@ export function KnowledgeGraphCanvas({
 				ctx.textBaseline = "alphabetic";
 			}
 		},
-		[centerNodeId, maxDegree],
+		[centerNodeId, selectedNodeId, maxDegree],
 	);
 
 	const nodePointerAreaPaint = useCallback(
@@ -187,6 +193,29 @@ export function KnowledgeGraphCanvas({
 		graph.d3Force("charge")?.strength(-60);
 		graph.d3Force("link")?.distance(120);
 	}, []);
+
+	// Sidebar-driven focus (search result or neighbor click): pan and zoom to
+	// the node once it has settled coordinates, retrying once if layout is
+	// still warming up.
+	useEffect(() => {
+		if (!focusRequest || !graphRef.current) return;
+		if (handledFocusToken.current === focusRequest.token) return;
+		handledFocusToken.current = focusRequest.token;
+		let retry: ReturnType<typeof setTimeout> | undefined;
+		const focus = (attempt: number) => {
+			const n = enrichedNodes.find((node) => node.id === focusRequest.id) as
+				| InternalNode
+				| undefined;
+			if (n?.x !== undefined && n.y !== undefined) {
+				graphRef.current.centerAt(n.x, n.y, 600);
+				graphRef.current.zoom(3.5, 600);
+			} else if (attempt === 0) {
+				retry = setTimeout(() => focus(1), 600);
+			}
+		};
+		focus(0);
+		return () => clearTimeout(retry);
+	}, [focusRequest, enrichedNodes]);
 
 	useEffect(() => {
 		if (!centerNodeId || !graphRef.current) return;
