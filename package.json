@@ -10,7 +10,10 @@
 		"format": "biome format . --write",
 		"mine": "bun run scripts/mine-claude-transcripts.ts",
 		"test": "vitest run",
-		"test:watch": "vitest"
+		"test:watch": "vitest",
+		"test:integration": "vitest run tests/integration",
+		"test:perf": "ECHO_PERF=1 vitest run tests/perf --disable-console-intercept",
+		"eval": "bun run evals/run-eval.ts"
 	},
 	"dependencies": {
 		"@ai-sdk/gateway": "^3.0.95",
