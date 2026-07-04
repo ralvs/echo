@@ -100,10 +100,10 @@
   </header>
 
   <div class="kpis">
-    <div class="kpi"><div class="n">6</div><div class="l">commits shipped today</div></div>
-    <div class="kpi"><div class="n">137</div><div class="l">tests passing</div></div>
-    <div class="kpi"><div class="n">0</div><div class="l">DB security warnings*</div></div>
-    <div class="kpi"><div class="n">3</div><div class="l">tasks queued, in order</div></div>
+    <div class="kpi"><div class="n">10</div><div class="l">commits shipped today</div></div>
+    <div class="kpi"><div class="n">156</div><div class="l">tests passing</div></div>
+    <div class="kpi"><div class="n">0.93</div><div class="l">retrieval nDCG@10 baseline</div></div>
+    <div class="kpi"><div class="n">2</div><div class="l">tasks queued, in order</div></div>
   </div>
   <p style="font-family:'Overpass Mono',monospace;font-size:10.5px;color:var(--txt3);margin-top:8px;">* function-level; one manual auth toggle remains — see “Your move”.</p>
 
@@ -122,6 +122,11 @@
       <div class="tl-item done">
         <h3>Backlog reevaluated, decisions grilled</h3>
         <p>Both open handoffs were re-verified against reality. The iOS/OAuth work: already done. What remained was interrogated one branch at a time and locked in as ADR-0020, an amended plan for the legacy token, and a measurement-first test strategy. Glossary seeded in <span class="mono">CONTEXT.md</span> (Owner, Thought, Entity, Community).</p>
+      </div>
+      <div class="tl-item done">
+        <h3>Measurement suite: eval, integration, perf</h3>
+        <p>Three tiers, modeled on <b>lore</b>. A golden-query scoreboard (<span class="mono">bun run eval</span>) scores 20 queries through the real search path against the live corpus: <b style="color:var(--txt)">mean nDCG@10 = 0.927, hit-rate@3 = 0.95</b>. Skip-safe DB integration tests on a local Supabase stack cover hybrid-search ranking fusion, entity RPC semantics, and a regression that the 00024-hardened RPCs stay locked to <span class="mono">service_role</span>. An opt-in perf harness (<span class="mono">ECHO_PERF=1</span>) prints p50/p95: hybrid_search 69&thinsp;ms @ 10k thoughts, entity-graph analytics 7&thinsp;ms @ 2k nodes — ADR-0018’s persistence trigger is nowhere close.</p>
+        <div class="why"><b>First data point for the hypothesis:</b> the one true miss was “what is Renan’s current salary” — the March raise thought never surfaced. Paraphrase fragmentation, not raw recall.</div>
       </div>
       <div class="tl-item done">
         <h3>Repo cleanup</h3>
@@ -189,7 +194,7 @@
         <g opacity="0.85">
           <rect x="278" y="238" width="180" height="40" rx="9" fill="none" stroke="#b85450" stroke-dasharray="5 4"/>
           <text x="368" y="255" fill="#d98a86" font-size="11" text-anchor="middle">static bearer token</text>
-          <text x="368" y="270" fill="#b85450" font-size="9.5" text-anchor="middle">being deleted right now ↻</text>
+          <text x="368" y="270" fill="#b85450" font-size="9.5" text-anchor="middle">deleted — OAuth only ✓</text>
         </g>
       </svg>
     </div>
@@ -199,22 +204,21 @@
     <h2>The queue</h2>
     <p class="h2sub">Decided, ordered, and each one launchable as its own session. Nothing here is up for re-debate — the “why” is recorded.</p>
     <div class="tl">
-      <div class="tl-item run">
-        <h3>Delete the legacy static token <span class="badge b-run">running now</span></h3>
-        <p>Remove the shared-secret path from the MCP server so OAuth is the only way in. Kills the timing-attack finding outright; nothing uses the old path anymore.</p>
+      <div class="tl-item done">
+        <h3>Delete the legacy static token <span class="badge b-done">done</span></h3>
+        <p>The shared-secret path is gone from the MCP server; OAuth is the only way in. Kills the timing-attack finding outright.</p>
+      </div>
+      <div class="tl-item done">
+        <h3>Test suite: measure before deciding <span class="badge b-done">done</span></h3>
+        <p>Shipped — see above. The scoreboard exists and produced its first baseline; every future tuning change gets a before/after number.</p>
       </div>
       <div class="tl-item">
-        <h3>Test suite: measure before deciding <span class="badge b-next">next up</span></h3>
-        <p>Modeled on the <b>lore</b> project: a golden-query retrieval scoreboard (nDCG@10 / hit-rate@3 against the live corpus), skip-safe DB integration tests on a local Supabase stack — including a regression test that the hardened RPCs stay locked — and an opt-in perf harness that says when derive-on-demand graph analytics stops being enough.</p>
-        <div class="why"><b>Why first:</b> the retrieval work below is parked <i>behind</i> this. No redesign until a number says where it hurts.</div>
-      </div>
-      <div class="tl-item">
-        <h3>Dashboard login + Vercel deploy <span class="badge b-next">queued</span></h3>
+        <h3>Dashboard login + Vercel deploy <span class="badge b-next">next up</span></h3>
         <p>ADR-0020: same Owner account as MCP, real check inside each API route (<span class="mono">requireOwner()</span>), middleware only redirects to <span class="mono">/login</span>. Then the dashboard finally goes public-URL, private-access.</p>
       </div>
       <div class="tl-item">
-        <h3>Retrieval upgrade <span class="badge b-park">parked, on purpose</span></h3>
-        <p>The original “make Echo better at saving &amp; retrieving” goal. Waiting on eval numbers from the test suite.</p>
+        <h3>Retrieval upgrade <span class="badge b-park">parked — now with data</span></h3>
+        <p>The original “make Echo better at saving &amp; retrieving” goal. The baseline says search mostly works; design against the misses the eval surfaces, starting with paraphrase-style queries.</p>
       </div>
     </div>
   </section>
@@ -239,15 +243,15 @@
         <span class="path">Supabase → Auth → Passwords → “Prevent leaked passwords”</span>
       </div>
       <div class="card">
-        <h3>Write the golden queries (when asked)</h3>
-        <p>The test-suite session will interview you for ~15–20 real questions about your own data and what should come back. Only you know the right answers — that’s the whole point of the scoreboard.</p>
-        <span class="path">eval-queries.echo.json · private, never committed</span>
+        <h3>Review the drafted golden queries</h3>
+        <p>Claude drafted the 20 queries from your live corpus instead of interviewing you. They’re grounded in real thoughts, but only you know the right answers — edit or replace them before trusting eval deltas.</p>
+        <span class="path">evals/eval-queries.echo.json · private, never committed</span>
       </div>
     </div>
   </section>
 
   <div class="foot">
-    <span>echo · main @ 76d164b</span>
+    <span>echo · main @ 046f2a7</span>
     <span>decisions: ADR-0019 · ADR-0020 · CONTEXT.md</span>
   </div>
 
