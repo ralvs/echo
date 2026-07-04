@@ -1,0 +1,16 @@
+{
+	"queries": [
+		{
+			"query": "where do I work",
+			"relevant": ["employer name", "or an id prefix like f6235e76"]
+		},
+		{
+			"query": "how much did the appliance repair cost",
+			"relevant": ["distinctive content substring", "another accepted substring"]
+		},
+		{
+			"query": "who is my mother-in-law",
+			"relevant": ["her name"]
+		}
+	]
+}
