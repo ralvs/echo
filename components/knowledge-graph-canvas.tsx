@@ -6,6 +6,7 @@ import type { GraphLink, GraphNode } from "@/app/api/graph/route";
 import {
 	communityColor,
 	DEFAULT_NODE_COLOR as DEFAULT_COLOR,
+	DEFAULT_LINK_COLOR,
 	LINK_COLORS,
 	TYPE_COLORS,
 } from "@/lib/graph-colors";
@@ -31,6 +32,12 @@ type Props = {
 	width: number;
 	centerNodeId?: string;
 };
+
+// Graphify-style sqrt-degree sizing (15 + sqrt(degree) * 5 capped at 45 in
+// vis.js pixels), scaled down to force-graph coordinate units.
+function nodeRadius(degree: number): number {
+	return Math.min(15, 5 + Math.sqrt(degree) * 1.8);
+}
 
 export function KnowledgeGraphCanvas({
 	nodes,
@@ -59,13 +66,18 @@ export function KnowledgeGraphCanvas({
 		[nodes, degreeMap],
 	);
 
+	const maxDegree = useMemo(
+		() => enrichedNodes.reduce((max, n) => Math.max(max, n.__degree), 0),
+		[enrichedNodes],
+	);
+
 	const nodeCanvasObject = useCallback(
 		(rawNode: object, ctx: CanvasRenderingContext2D, globalScale: number) => {
 			const node = rawNode as InternalNode;
 			const x = node.x ?? 0;
 			const y = node.y ?? 0;
 			const degree = node.__degree;
-			const r = Math.max(5, Math.min(14, 5 + degree * 1.4));
+			const r = nodeRadius(degree);
 			// Entity-mode nodes carry a community index and colour by cluster;
 			// thought-mode nodes colour by type.
 			const color =
@@ -76,35 +88,28 @@ export function KnowledgeGraphCanvas({
 
 			if (isCenter) {
 				ctx.beginPath();
-				ctx.arc(x, y, r + 11, 0, 2 * Math.PI);
-				ctx.fillStyle = `${color}0d`;
+				ctx.arc(x, y, r + 9, 0, 2 * Math.PI);
+				ctx.fillStyle = `${color}14`;
 				ctx.fill();
 				ctx.beginPath();
-				ctx.arc(x, y, r + 6, 0, 2 * Math.PI);
-				ctx.fillStyle = `${color}22`;
+				ctx.arc(x, y, r + 4, 0, 2 * Math.PI);
+				ctx.fillStyle = `${color}26`;
 				ctx.fill();
 			}
 
-			// Outer glow
-			ctx.beginPath();
-			ctx.arc(x, y, r + 3, 0, 2 * Math.PI);
-			ctx.fillStyle = `${color}1a`;
-			ctx.fill();
-
-			// Core
+			// Flat Graphify dot: solid core + subtle border
 			ctx.beginPath();
 			ctx.arc(x, y, r, 0, 2 * Math.PI);
 			ctx.fillStyle = color;
 			ctx.fill();
+			ctx.strokeStyle = "rgba(224,224,224,0.35)";
+			ctx.lineWidth = 1.5 / globalScale;
+			ctx.stroke();
 
-			// Inner specular
-			ctx.beginPath();
-			ctx.arc(x - r * 0.28, y - r * 0.28, r * 0.38, 0, 2 * Math.PI);
-			ctx.fillStyle = "rgba(255,255,255,0.10)";
-			ctx.fill();
-
-			// Label — always visible, length scales with zoom
-			{
+			// Labels are hub-only at rest (Graphify shows them for nodes at
+			// >= 15% of max degree); everything gets a label once zoomed in.
+			const isHub = maxDegree > 0 && degree >= 0.15 * maxDegree;
+			if (isHub || globalScale > 2.5 || isCenter) {
 				const maxLen = globalScale > 2 ? 38 : globalScale > 1.2 ? 24 : 16;
 				const label = node.label.length > maxLen ? `${node.label.slice(0, maxLen)}…` : node.label;
 				const targetPx = 9;
@@ -115,16 +120,16 @@ export function KnowledgeGraphCanvas({
 				const bx = x - tw / 2 - pad;
 				const by = y + r + 4 / globalScale;
 				const bh = fontSize + pad * 2;
-				ctx.fillStyle = "rgba(12,11,10,0.80)";
+				ctx.fillStyle = "rgba(15,15,26,0.85)";
 				ctx.fillRect(bx, by, tw + pad * 2, bh);
-				ctx.fillStyle = "rgba(232,228,222,0.80)";
+				ctx.fillStyle = "rgba(224,224,224,0.85)";
 				ctx.textAlign = "center";
 				ctx.textBaseline = "top";
 				ctx.fillText(label, x, by + pad);
 				ctx.textBaseline = "alphabetic";
 			}
 		},
-		[centerNodeId],
+		[centerNodeId, maxDegree],
 	);
 
 	const nodePointerAreaPaint = useCallback(
@@ -132,7 +137,7 @@ export function KnowledgeGraphCanvas({
 			const node = rawNode as InternalNode;
 			const x = node.x ?? 0;
 			const y = node.y ?? 0;
-			const r = Math.max(5, Math.min(14, 5 + node.__degree * 1.4)) + 4;
+			const r = nodeRadius(node.__degree) + 4;
 			ctx.beginPath();
 			ctx.arc(x, y, r, 0, 2 * Math.PI);
 			ctx.fillStyle = color;
@@ -142,7 +147,7 @@ export function KnowledgeGraphCanvas({
 	);
 
 	const getLinkColor = useCallback(
-		(link: object) => LINK_COLORS[(link as InternalLink).relationType] ?? "rgba(154,149,137,0.15)",
+		(link: object) => LINK_COLORS[(link as InternalLink).relationType] ?? DEFAULT_LINK_COLOR,
 		[],
 	);
 
@@ -151,8 +156,14 @@ export function KnowledgeGraphCanvas({
 		[],
 	);
 
+	// Graphify draws INFERRED/low-confidence relationships dashed.
+	const getLinkLineDash = useCallback(
+		(link: object) => ((link as InternalLink).confidence < 0.6 ? [4, 3] : null),
+		[],
+	);
+
 	const getLinkArrowColor = useCallback(
-		(link: object) => LINK_COLORS[(link as InternalLink).relationType] ?? "rgba(154,149,137,0.15)",
+		(link: object) => LINK_COLORS[(link as InternalLink).relationType] ?? DEFAULT_LINK_COLOR,
 		[],
 	);
 
@@ -167,6 +178,15 @@ export function KnowledgeGraphCanvas({
 		},
 		[onNodeClick],
 	);
+
+	// Approximate Graphify's forceAtlas2Based physics (gravitationalConstant
+	// -60, springLength 120) on top of d3-force.
+	useEffect(() => {
+		const graph = graphRef.current;
+		if (!graph) return;
+		graph.d3Force("charge")?.strength(-60);
+		graph.d3Force("link")?.distance(120);
+	}, []);
 
 	useEffect(() => {
 		if (!centerNodeId || !graphRef.current) return;
@@ -191,14 +211,16 @@ export function KnowledgeGraphCanvas({
 			onNodeClick={handleNodeClick}
 			linkColor={getLinkColor}
 			linkWidth={getLinkWidth}
+			linkCurvature={0.2}
+			linkLineDash={getLinkLineDash}
 			linkDirectionalArrowLength={3.5}
 			linkDirectionalArrowRelPos={1}
 			linkDirectionalArrowColor={getLinkArrowColor}
-			backgroundColor="#141311"
+			backgroundColor="#0f0f1a"
 			width={width}
 			height={height}
 			d3AlphaDecay={0.018}
-			d3VelocityDecay={0.28}
+			d3VelocityDecay={0.4}
 			warmupTicks={80}
 			cooldownTime={4000}
 		/>

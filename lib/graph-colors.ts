@@ -1,12 +1,17 @@
+/**
+ * Graph palette ported from Graphify's HTML export (Tableau-10). Node colours
+ * come from this single palette in both modes so the canvas reads as one
+ * visual system: thought types map onto fixed slots, communities cycle.
+ */
 export const TYPE_COLORS: Record<string, string> = {
-	observation: "#7bb8d4",
-	task: "#e8b86d",
-	idea: "#c4a8e0",
-	reference: "#82c496",
-	person_note: "#d4a098",
+	observation: "#4E79A7",
+	task: "#F28E2B",
+	idea: "#B07AA1",
+	reference: "#59A14F",
+	person_note: "#FF9DA7",
 };
 
-export const DEFAULT_NODE_COLOR = "#6b665c";
+export const DEFAULT_NODE_COLOR = "#BAB0AC";
 
 /**
  * Cluster palette for the entity graph's community colouring. Indices cycle, so
@@ -14,16 +19,16 @@ export const DEFAULT_NODE_COLOR = "#6b665c";
  * lowest-member normalisation, keeping the two views visually consistent.
  */
 export const COMMUNITY_COLORS = [
-	"#7bb8d4",
-	"#e8b86d",
-	"#c4a8e0",
-	"#82c496",
-	"#d4a098",
-	"#d39bc4",
-	"#9fb86d",
-	"#6dc4c4",
-	"#e0a86d",
-	"#a8b0e0",
+	"#4E79A7",
+	"#F28E2B",
+	"#E15759",
+	"#76B7B2",
+	"#59A14F",
+	"#EDC948",
+	"#B07AA1",
+	"#FF9DA7",
+	"#9C755F",
+	"#BAB0AC",
 ];
 
 export function communityColor(index: number | undefined): string {
@@ -32,8 +37,11 @@ export function communityColor(index: number | undefined): string {
 }
 
 export const LINK_COLORS: Record<string, string> = {
-	updates: "#e8b86d",
-	extends: "#9a7339",
-	derives: "#7bb8d4",
-	related: "rgba(154, 149, 137, 0.22)",
+	updates: "#F28E2B",
+	extends: "#9C755F",
+	derives: "#4E79A7",
+	related: "rgba(186, 176, 172, 0.22)",
 };
+
+/** Neutral edge colour for relation types outside LINK_COLORS (e.g. entity co-occurrence). */
+export const DEFAULT_LINK_COLOR = "rgba(186, 176, 172, 0.28)";
