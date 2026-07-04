@@ -169,12 +169,11 @@ The `echo-mcp` edge function implements an MCP (Model Context Protocol) server �
 
 ### Auth
 
-The MCP endpoint uses `verify_jwt = false` (Supabase gateway-level MCP auth isn't available yet). Auth is handled in the Hono middleware, which accepts two kinds of bearer token:
+The MCP endpoint uses `verify_jwt = false` (Supabase gateway-level MCP auth isn't available yet). Auth is handled in the Hono middleware, which accepts exactly one kind of bearer token:
 
-1. **Static key** (legacy) — `Authorization: Bearer <token>` where the token matches the `MCP_PUBLISHABLE_KEY` secret. This is what Claude Code uses via `mcp-remote` (see below). It cannot be used from Claude Desktop or Claude iOS — there is no UI in those clients for a custom header.
-2. **OAuth access token** — issued by Supabase Auth's OAuth 2.1 server. The token is validated with `auth.getUser()` and the resulting user must match the `ECHO_OWNER_USER_ID` secret; everyone else gets 401, even with a valid Supabase session. This is the path Claude Desktop/iOS use as a custom connector (see below).
+**OAuth access token** — issued by Supabase Auth's OAuth 2.1 server. The token is validated with `auth.getUser()` and the resulting user must match the `ECHO_OWNER_USER_ID` secret; everyone else gets 401, even with a valid Supabase session. Every Claude surface (Code, Desktop, web, iOS/Android) connects as a custom connector via this flow (see below). Scripts and hooks don't go through MCP at all — they use the service-role key against the DB directly.
 
-> **TODO(oauth-only):** the static key is a transitional path. Once Claude Code, hooks, and scripts are migrated to OAuth, remove the `MCP_PUBLISHABLE_KEY` branch in `echo-mcp/index.ts`.
+> The legacy static-key path (`MCP_PUBLISHABLE_KEY`) was removed in July 2026 — see ADR-0019.
 
 The Supabase secret key (`SUPABASE_SERVICE_ROLE_KEY`) is used internally for DB access; it's auto-injected by the Supabase platform into every edge function, never set manually. The Supabase **publishable** key is used only to validate caller-supplied OAuth tokens (`ECHO_PUBLISHABLE_KEY` — a custom secret; Supabase's CLI blocks any custom secret name starting with `SUPABASE_`, so it can't be named that) — it's safe to expose, it grants nothing on its own.
 
@@ -223,19 +222,20 @@ Done once in the dashboard (config.toml only governs local dev):
 
 ### Claude Code config
 
+Claude Code connects over HTTP with OAuth — no static token in the config:
+
 ```json
 {
   "mcpServers": {
     "echo": {
       "type": "http",
-      "url": "https://<project-ref>.supabase.co/functions/v1/echo-mcp",
-      "headers": {
-        "Authorization": "Bearer <MCP_PUBLISHABLE_KEY>"
-      }
+      "url": "https://<project-ref>.supabase.co/functions/v1/echo-mcp"
     }
   }
 }
 ```
+
+Run `/mcp` in Claude Code to complete the OAuth login the first time.
 
 ---
 
@@ -474,7 +474,6 @@ AI_GATEWAY_API_KEY=<vercel-ai-gateway-key>
 Edge function secrets (set via Supabase dashboard or CLI):
 
 ```
-MCP_PUBLISHABLE_KEY=<generate a random string — this is the bearer token for MCP>
 MCP_ACCESS_KEY=<access key for reembed-thoughts function>
 AI_GATEWAY_API_KEY=<vercel-ai-gateway-key>
 SUPABASE_SERVICE_ROLE_KEY=<service role key>
@@ -506,7 +505,6 @@ supabase functions deploy echo-mcp
 
 # Set secrets — note: anything starting with SUPABASE_ is rejected by the CLI,
 # because SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are auto-injected already.
-supabase secrets set MCP_PUBLISHABLE_KEY=<value>
 supabase secrets set AI_GATEWAY_API_KEY=<value>
 supabase secrets set ECHO_PUBLISHABLE_KEY=<your sb_publishable_... key>
 supabase secrets set ECHO_OWNER_USER_ID=<value>

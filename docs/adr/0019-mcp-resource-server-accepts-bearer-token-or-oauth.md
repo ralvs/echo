@@ -12,7 +12,9 @@ The OAuth login + consent screen lives in `consent/`, a standalone static page d
 
 ## Consequences
 
+> **Amended 2026-07-04 — static path removed.** The `MCP_PUBLISHABLE_KEY` static-token branch was deleted from `echo-mcp/index.ts` and the secret removed from the Supabase project. Auth is now OAuth-only: `auth.getUser(token)` + the `ECHO_OWNER_USER_ID` allowlist. No client migration was needed — scripts/hooks turned out to use the service-role key against the DB directly (never MCP), and all Claude surfaces connect via the OAuth connector. The bullets below describe the dual-path state as it was when this ADR was written.
+
 - Two code paths to keep in sync mentally: a request can be unauthorized for "wrong static token" or "right OAuth user but not the owner" — both return the same generic 401 + `WWW-Authenticate` challenge, so failure modes aren't distinguishable to the caller (intentional, avoids leaking which check failed).
 - `ECHO_PUBLISHABLE_KEY` is a separate secret from the legacy `MCP_PUBLISHABLE_KEY` static token — same publishable-key value as used in `consent/`, but named to avoid the Supabase CLI's blanket rejection of any custom secret starting with `SUPABASE_`.
-- Removing the static-token branch (the `TODO(oauth-only)` in `echo-mcp/index.ts`) is still pending — not done until Claude Code's `mcp-remote` config and any scripts/hooks are migrated to OAuth too.
+- ~~Removing the static-token branch (the `TODO(oauth-only)` in `echo-mcp/index.ts`) is still pending — not done until Claude Code's `mcp-remote` config and any scripts/hooks are migrated to OAuth too.~~ Done 2026-07-04 (see amendment above).
 - If Echo becomes multi-tenant later, the `ECHO_OWNER_USER_ID` single-id allowlist is the first thing to replace — with it gone, the OAuth path already does real per-user auth via Supabase Auth, so the resource-server logic doesn't need to be rebuilt, just loosened.

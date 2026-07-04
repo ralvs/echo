@@ -173,11 +173,9 @@ Replace `/path/to/echo` in Step 2a with the absolute path to this repo.
 
 The Echo MCP server exposes Echo tools to Claude directly, enabling `capture_thought`, `search_thoughts`, `list_thoughts`, and others in Claude Code, Claude Desktop, Claude web, and Claude iOS/Android.
 
-The server is a Supabase Edge Function deployed at the project's Supabase URL (Streamable HTTP). It supports two auth modes — pick based on which Claude surface you're configuring.
+The server is a Supabase Edge Function deployed at the project's Supabase URL (Streamable HTTP). Auth is OAuth-only: Echo's edge function is an OAuth-protected resource server backed by Supabase Auth's OAuth 2.1 server. (A legacy static bearer-token path existed until July 2026 — see ADR-0019.)
 
 ### Claude Desktop / web / iOS / Android — custom connector (OAuth)
-
-Desktop, web, and the mobile apps only support OAuth-based custom connectors — there's no UI to paste a static bearer token. Echo's edge function doubles as an OAuth-protected resource server backed by Supabase Auth's OAuth 2.1 server.
 
 1. claude.ai → **Settings → Connectors → Add custom connector**.
 2. URL: `https://<your-supabase-project>.supabase.co/functions/v1/echo-mcp`.
@@ -186,30 +184,18 @@ Desktop, web, and the mobile apps only support OAuth-based custom connectors —
 
 Behind the scenes: the edge function returns `401` + a `WWW-Authenticate` header pointing Claude at `/.well-known/oauth-protected-resource`; Claude discovers Supabase's OAuth server from there, self-registers via dynamic client registration, and runs a normal OAuth+PKCE flow. The resulting access token is validated against Supabase Auth and checked against the `ECHO_OWNER_USER_ID` allowlist on every request — only the project owner's account can ever reach the tools, regardless of how many OAuth clients register themselves.
 
-### Claude Code CLI — `mcp-remote` (legacy static token)
+### Claude Code CLI — HTTP transport (OAuth)
 
-Claude Code can attach a custom header, so it keeps using a static bearer token via `mcp-remote`. This path still works and is unaffected by the OAuth setup above.
+Claude Code speaks OAuth for HTTP MCP servers natively — no `mcp-remote`, no static token.
 
-Add to `~/.claude/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "echo": {
-      "command": "mcp-remote",
-      "args": [
-        "https://<your-supabase-project>.supabase.co/functions/v1/echo-mcp",
-        "--header",
-        "Authorization:Bearer <your-mcp-token>"
-      ]
-    }
-  }
-}
+```bash
+claude mcp add --transport http echo \
+  https://<your-supabase-project>.supabase.co/functions/v1/echo-mcp
 ```
 
-- **`mcp-remote`** must be installed: `npm install -g mcp-remote`
-- **MCP token** is the `MCP_PUBLISHABLE_KEY` secret set on the `echo-mcp` edge function.
-- **TODO(oauth-only):** this is a transitional path. Once Claude Code supports OAuth for HTTP MCP servers end-to-end in your workflow (hooks/scripts included), migrate this to OAuth too and remove the static-key branch from `echo-mcp/index.ts`.
+Then run `/mcp` inside Claude Code and complete the browser login (owner account) the first time. Tokens are refreshed automatically after that.
+
+Note: the auto-capture hooks and ingest scripts in this repo do **not** use MCP — they write to the DB directly with the service-role key from `.env.local`, so they're unaffected by MCP auth.
 
 ### Available tools
 
