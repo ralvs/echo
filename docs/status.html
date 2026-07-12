@@ -105,7 +105,7 @@
     <div class="kpi"><div class="n">164</div><div class="l">tests (151 pass, 13 skip-safe)</div></div>
     <div class="kpi"><div class="n">0</div><div class="l">tasks queued — backlog clear</div></div>
   </div>
-  <p style="font-family:'Overpass Mono',monospace;font-size:10.5px;color:var(--txt3);margin-top:8px;">* over the expanded 25-query set, which includes 5 new adversarial paraphrase probes; the July-5 “0.93” was 20 easier queries with a recall-blind metric.</p>
+  <p style="font-family:'Overpass Mono',monospace;font-size:10.5px;color:var(--txt3);margin-top:8px;">* over the expanded, Renan-reviewed 24-query set incl. 4 adversarial paraphrase probes; the July-5 “0.93” was 20 easier queries with a recall-blind metric.</p>
 
   <section>
     <h2>Shipped today <span class="badge b-done">done</span></h2>
@@ -117,17 +117,17 @@
       </div>
       <div class="tl-item done">
         <h3>Eval scoreboard grew recall-sensitive metrics</h3>
-        <p>The old nDCG@10 built its ideal ranking from <em>retrieved</em> results only — retrieve 1 of 3 relevant docs at rank 1 and it still scored 1.0. Added <span class="mono">recall@10</span>, <span class="mono">MRR@10</span>, and per-query first-relevant-rank alongside it, plus 5 adversarial paraphrase queries (salary wordings, an “Engram” rename probe, an “Isabella” alias probe).</p>
+        <p>The old nDCG@10 built its ideal ranking from <em>retrieved</em> results only — retrieve 1 of 3 relevant docs at rank 1 and it still scored 1.0. Added <span class="mono">recall@10</span>, <span class="mono">MRR@10</span>, and per-query first-relevant-rank alongside it, plus 4 adversarial paraphrase queries (salary wordings, “Engram” rename probes). All 24 queries now reviewed by Renan — the ground truth is trusted.</p>
       </div>
       <div class="tl-item done">
         <h3>Root cause of the salary miss: the perspective gap</h3>
-        <p>Measured, not guessed. Not alias fragmentation (the Engram and Isabella probes passed), not the 0.5 threshold, not the candidate pool (expanding it moved nothing). The raise thought is written first-person — “Got a raise…” — so it never says “Renan”, while every query and every winning profile thought does. Its cosine sat at 0.34 vs competitors’ 0.57.</p>
+        <p>Measured, not guessed. Not alias fragmentation (the Engram rename probes passed), not the 0.5 threshold, not the candidate pool (expanding it moved nothing). The raise thought is written first-person — “Got a raise…” — so it never says “Renan”, while every query and every winning profile thought does. Its cosine sat at 0.34 vs competitors’ 0.57.</p>
         <div class="why"><b>The July-5 hypothesis, half right:</b> capture-side rot was the right category, but the rot is perspective, not aliases. The graph-context half stays parked — the eval can’t score it yet.</div>
       </div>
       <div class="tl-item done">
         <h3>Owner-anchored embeddings, live (ADR-0021)</h3>
         <p><span class="mono">buildEmbeddingText</span> now prefixes every thought with “About Renan:” via <span class="mono">ECHO_OWNER_NAME</span>, threaded through both runtimes; all 49 vectors re-embedded with the new <span class="mono">reembed-thoughts.ts</span> backfill. Also: <span class="mono">hybrid_search</span> now over-fetches a 3× candidate pool so decay reranking can actually promote. Edge function redeployed with the secret; Vercel env var added.</p>
-        <div class="why"><b>Result:</b> the salary query went from nDCG 0 to a rank-1 hit; nDCG@10 0.862 → 0.884, hit-rate@3 0.88 → 0.92 on the harder 25-query set. Known residual: two deliberately brutal paraphrases (“earn per month”, “monthly income”) still rank ~30th — fixing them means extraction-side synonym topics, deferred as not worth the machinery yet.</div>
+        <div class="why"><b>Result:</b> the salary query went from nDCG 0 to a rank-1 hit; nDCG@10 0.879, hit-rate@3 0.92 on the harder, Renan-reviewed 24-query set (was 0.862 / 0.88 pre-anchor). Known residual: two deliberately brutal paraphrases (“earn per month”, “monthly income”) still rank ~30th — fixing them means extraction-side synonym topics, deferred as not worth the machinery yet.</div>
       </div>
     </div>
   </section>
@@ -227,7 +227,7 @@
     <div class="rule"></div>
     <div class="hypo">
       <h3>Half right: capture-side rot, yes — but the rot was perspective, not aliases.</h3>
-      <p>The July-5 bet was alias fragmentation plus flat results. The stress eval refuted the alias half (Engram and Isabella probes pass) and confirmed a subtler capture-side gap: <b style="color:var(--txt)">first-person thoughts never name the Owner, third-person queries always do</b>. The fix was one structural line in the embedding text — “About Renan:” — validated offline with cosine probes before touching the corpus, then confirmed live. The flat-results half remains plausible but unmeasurable until the eval learns to score attached context.</p>
+      <p>The July-5 bet was alias fragmentation plus flat results. The stress eval refuted the alias half (Engram rename probes pass) and confirmed a subtler capture-side gap: <b style="color:var(--txt)">first-person thoughts never name the Owner, third-person queries always do</b>. The fix was one structural line in the embedding text — “About Renan:” — validated offline with cosine probes before touching the corpus, then confirmed live. The flat-results half remains plausible but unmeasurable until the eval learns to score attached context.</p>
       <p class="ev">method: 3 read-side knobs tried and measured dead (pool, alpha, threshold) before the write-side fix · every step has a before/after eval run</p>
     </div>
   </section>
@@ -242,20 +242,20 @@
         <span class="path">Supabase → Auth → Passwords · requires Pro plan</span>
       </div>
       <div class="card">
-        <h3>Review the drafted golden queries — now 25</h3>
-        <p>Claude drafted all of them from your live corpus (5 new paraphrase-stress probes added today). They’re grounded in real thoughts, but only you know the right answers — edit or replace them before trusting eval deltas.</p>
+        <h3>Golden queries reviewed <span class="badge b-done">done</span></h3>
+        <p>Renan reviewed all queries via the readable render (<span class="mono">bun run scripts/review-eval-queries.ts</span>). One fix: the “Isabella” probe assumed Bella was a nickname — her name is just Bella. 24 trusted queries remain.</p>
         <span class="path">evals/eval-queries.echo.json · private, never committed</span>
       </div>
       <div class="card">
-        <h3>Push when ready</h3>
-        <p>Eight signed commits are sitting on local <span class="mono">main</span> (four July-5 auth commits, four from today’s retrieval work). Everything is deployed; the push is just history.</p>
-        <span class="path">git push origin main</span>
+        <h3>Pushed <span class="badge b-done">done</span></h3>
+        <p>All of today’s work is on <span class="mono">origin/main</span>: the four July-5 auth commits, the retrieval upgrade, the review renderer. Deployed everywhere it needs to be.</p>
+        <span class="path">git log origin/main</span>
       </div>
     </div>
   </section>
 
   <div class="foot">
-    <span>echo · main, 8 signed commits ahead of origin · live: echo-rlvs.vercel.app</span>
+    <span>echo · main in sync with origin · live: echo-rlvs.vercel.app</span>
     <span>decisions: ADR-0020 · ADR-0021 · CONTEXT.md</span>
   </div>
 
