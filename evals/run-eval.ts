@@ -37,15 +37,16 @@ const deps = { db: createClient(SUPABASE_URL, SUPABASE_KEY), ai: nodeAi };
 const summary = await evalQueries(deps, file);
 
 const pad = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s.padEnd(n));
-console.log(`\n${pad("query", 48)}  nDCG@10  hit@3  rel/10`);
-console.log("-".repeat(72));
+console.log(`\n${pad("query", 48)}  nDCG@10  hit@3  rel/10  firstRank  recall@10`);
+console.log("-".repeat(96));
 for (const r of summary.results) {
 	const flag = r.hitRate3 === 0 ? "  ←miss" : "";
+	const rank = r.firstRelevantRank === null ? "-" : String(r.firstRelevantRank);
 	console.log(
-		`${pad(r.query, 48)}  ${r.ndcg10.toFixed(4)}   ${r.hitRate3}      ${r.relevantInTop10}/${r.returned}${flag}`,
+		`${pad(r.query, 48)}  ${r.ndcg10.toFixed(4)}   ${r.hitRate3}      ${r.relevantInTop10}/${r.returned}     ${pad(rank, 9)}  ${r.recallAt10.toFixed(4)}${flag}`,
 	);
 }
-console.log("-".repeat(72));
+console.log("-".repeat(96));
 console.log(
-	`mean nDCG@10 = ${summary.meanNdcg10.toFixed(4)}   mean hit-rate@3 = ${summary.meanHitRate3.toFixed(4)}   (${summary.results.length} queries)\n`,
+	`mean nDCG@10 = ${summary.meanNdcg10.toFixed(4)}   mean hit-rate@3 = ${summary.meanHitRate3.toFixed(4)}   MRR@10 = ${summary.mrr10.toFixed(4)}   mean recall@10 = ${summary.meanRecallAt10.toFixed(4)}   (${summary.results.length} queries)\n`,
 );

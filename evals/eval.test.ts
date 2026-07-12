@@ -95,10 +95,68 @@ describe("evalQueries", () => {
 		const summary = await evalQueries(deps, file);
 
 		expect(summary.results).toHaveLength(2);
-		expect(summary.results[0]).toMatchObject({ ndcg10: 1, hitRate3: 1, relevantInTop10: 1 });
-		expect(summary.results[1]).toMatchObject({ ndcg10: 0, hitRate3: 0, relevantInTop10: 0 });
+		expect(summary.results[0]).toMatchObject({
+			ndcg10: 1,
+			hitRate3: 1,
+			relevantInTop10: 1,
+			firstRelevantRank: 1,
+			recallAt10: 1,
+		});
+		expect(summary.results[1]).toMatchObject({
+			ndcg10: 0,
+			hitRate3: 0,
+			relevantInTop10: 0,
+			firstRelevantRank: null,
+			recallAt10: 0,
+		});
 		expect(summary.meanNdcg10).toBe(0.5);
 		expect(summary.meanHitRate3).toBe(0.5);
+		// query 1 hits at rank 1 (rr=1), query 2 misses (rr=0) → mean 0.5
+		expect(summary.mrr10).toBe(0.5);
+		// query 1 recall 1, query 2 recall 0 → mean 0.5
+		expect(summary.meanRecallAt10).toBe(0.5);
+	});
+
+	it("computes firstRelevantRank for a relevant hit ranked below first", async () => {
+		const file = writeQueries("ranked.json", [{ query: "ranked", relevant: ["hit-b"] }]);
+		const deps = fakeDeps({
+			ranked: [
+				{ id: "hit-a", content: "irrelevant" },
+				{ id: "hit-b", content: "the target" },
+			],
+		});
+
+		const summary = await evalQueries(deps, file);
+
+		expect(summary.results[0].firstRelevantRank).toBe(2);
+		expect(summary.mrr10).toBe(0.5);
+	});
+
+	it("computes recallAt10 as the fraction of relevant matchers found, independent of duplicates", async () => {
+		const file = writeQueries("recall.json", [
+			{ query: "partial", relevant: ["alpha", "beta", "gamma"] },
+		]);
+		const deps = fakeDeps({
+			partial: [
+				{ id: "t1", content: "mentions alpha" },
+				{ id: "t2", content: "mentions beta" },
+			],
+		});
+
+		const summary = await evalQueries(deps, file);
+
+		// alpha and beta matched, gamma did not → 2/3
+		expect(summary.results[0].recallAt10).toBeCloseTo(2 / 3, 4);
+		expect(summary.meanRecallAt10).toBeCloseTo(2 / 3, 4);
+	});
+
+	it("treats an empty relevant list as zero recall, no crash", async () => {
+		const file = writeQueries("empty.json", [{ query: "nothing", relevant: [] }]);
+		const deps = fakeDeps({ nothing: [{ id: "t1", content: "anything" }] });
+
+		const summary = await evalQueries(deps, file);
+
+		expect(summary.results[0]).toMatchObject({ recallAt10: 0, firstRelevantRank: null });
 	});
 
 	it("rejects files without a queries array", () => {
