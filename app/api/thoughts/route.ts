@@ -1,5 +1,6 @@
 import { listThoughts, type ThoughtListFilters } from "@shared/list-thoughts.ts";
 import { after, type NextRequest, NextResponse } from "next/server";
+import { requireOwner } from "@/lib/auth";
 import { captureThought } from "@/lib/capture";
 import { createServiceClient } from "@/lib/supabase";
 
@@ -7,6 +8,8 @@ const THOUGHT_COLUMNS =
 	"id, content, metadata, version, due_at, recurrence, priority, category, source_id, source_kind, created_at, updated_at";
 
 export async function GET(req: NextRequest) {
+	const auth = await requireOwner();
+	if (auth instanceof NextResponse) return auth;
 	const supabase = createServiceClient();
 	const params = req.nextUrl.searchParams;
 
@@ -42,6 +45,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+	const auth = await requireOwner();
+	if (auth instanceof NextResponse) return auth;
 	const body = await req.json();
 
 	if (!body.content?.trim()) {

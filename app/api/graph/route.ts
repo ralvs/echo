@@ -3,6 +3,7 @@ import { communities } from "@shared/graph-analysis.ts";
 import { corpusGraph, egoGraph, type RelationGraph } from "@shared/relation-graph.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { type NextRequest, NextResponse } from "next/server";
+import { requireOwner } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase";
 
 export type GraphNode = {
@@ -82,6 +83,8 @@ async function entityGraphData(supabase: SupabaseClient): Promise<GraphData> {
 }
 
 export async function GET(req: NextRequest) {
+	const auth = await requireOwner();
+	if (auth instanceof NextResponse) return auth;
 	const supabase = createServiceClient();
 	const params = req.nextUrl.searchParams;
 	const limit = Number(params.get("limit") || "300");

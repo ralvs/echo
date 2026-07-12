@@ -1,8 +1,11 @@
 import { searchThoughts } from "@shared/search.ts";
 import { type NextRequest, NextResponse } from "next/server";
+import { requireOwner } from "@/lib/auth";
 import { nodeAi } from "@/lib/model";
 
 export async function POST(req: NextRequest) {
+	const auth = await requireOwner();
+	if (auth instanceof NextResponse) return auth;
 	const body = await req.json();
 	const { query, limit = 10, threshold } = body;
 

@@ -2,7 +2,8 @@
 
 import { motion } from "motion/react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { createBrowserSupabase } from "@/lib/supabase-browser";
 
 const navItems = [
 	{
@@ -71,6 +72,13 @@ const navItems = [
 
 export function Sidebar() {
 	const pathname = usePathname();
+	const router = useRouter();
+
+	const signOut = async () => {
+		await createBrowserSupabase().auth.signOut();
+		router.push("/login");
+		router.refresh();
+	};
 
 	return (
 		<aside className="fixed left-0 top-0 bottom-0 w-[220px] bg-surface-1 border-r border-border-subtle flex flex-col z-50">
@@ -125,10 +133,32 @@ export function Sidebar() {
 				})}
 			</nav>
 
-			<div className="p-4 border-t border-border-subtle">
+			<div className="p-4 border-t border-border-subtle flex items-center justify-between">
 				<p className="text-[10px] font-mono text-text-tertiary tracking-wider uppercase">
 					Echo v1.0
 				</p>
+				<button
+					type="button"
+					onClick={signOut}
+					aria-label="Sign out"
+					className="text-text-tertiary hover:text-text-secondary transition-colors"
+				>
+					<svg
+						aria-hidden="true"
+						width="15"
+						height="15"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="1.5"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+					>
+						<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+						<polyline points="16 17 21 12 16 7" />
+						<line x1="21" y1="12" x2="9" y2="12" />
+					</svg>
+				</button>
 			</div>
 		</aside>
 	);

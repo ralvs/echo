@@ -1,8 +1,11 @@
 import { after, type NextRequest, NextResponse } from "next/server";
+import { requireOwner } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase";
 import { updateThought } from "@/lib/update";
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+	const auth = await requireOwner();
+	if (auth instanceof NextResponse) return auth;
 	const { id } = await params;
 	const supabase = createServiceClient();
 
@@ -19,6 +22,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+	const auth = await requireOwner();
+	if (auth instanceof NextResponse) return auth;
 	const { id } = await params;
 	const body = await req.json();
 
@@ -47,6 +52,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+	const auth = await requireOwner();
+	if (auth instanceof NextResponse) return auth;
 	const { id } = await params;
 	const supabase = createServiceClient();
 

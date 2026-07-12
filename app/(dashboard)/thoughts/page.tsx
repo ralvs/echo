@@ -3,7 +3,7 @@
 import { DateTime } from "luxon";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { TypeTag } from "@/components/type-tag";
 import { useSearch } from "@/lib/hooks/use-search";
 import { useThoughtList } from "@/lib/hooks/use-thought-list";
@@ -16,7 +16,17 @@ const TIME_RANGES = [
 	{ label: "90 days", value: 90 },
 ];
 
+// useSearchParams (inside useThoughtList) opts the page out of static
+// prerender; the boundary keeps `next build` happy.
 export default function ThoughtsPage() {
+	return (
+		<Suspense fallback={null}>
+			<ThoughtsPageContent />
+		</Suspense>
+	);
+}
+
+function ThoughtsPageContent() {
 	const { thoughts, isLoading, filters, setFilters, refresh } = useThoughtList();
 	const { query, setQuery, results: searchResults, isSearching, search } = useSearch();
 	useEffect(() => {
