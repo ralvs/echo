@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Echo — Project Status · July 4, 2026</title>
+<title>Echo — Project Status · July 5, 2026</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Overpass+Mono:wght@300..700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <style>
@@ -94,16 +94,16 @@
 <div class="wrap">
 
   <header>
-    <div class="stamp">Project status · July 4, 2026</div>
+    <div class="stamp">Project status · July 5, 2026</div>
     <h1>Echo, <em>right now</em></h1>
     <p class="sub">One page for humans: what shipped, what was decided, what runs next, and the one thing only Renan can click.</p>
   </header>
 
   <div class="kpis">
-    <div class="kpi"><div class="n">10</div><div class="l">commits shipped today</div></div>
-    <div class="kpi"><div class="n">156</div><div class="l">tests passing</div></div>
+    <div class="kpi"><div class="n">9</div><div class="l">API handlers behind requireOwner()</div></div>
+    <div class="kpi"><div class="n">158</div><div class="l">tests passing</div></div>
     <div class="kpi"><div class="n">0.93</div><div class="l">retrieval nDCG@10 baseline</div></div>
-    <div class="kpi"><div class="n">2</div><div class="l">tasks queued, in order</div></div>
+    <div class="kpi"><div class="n">1</div><div class="l">task queued: retrieval</div></div>
   </div>
   <p style="font-family:'Overpass Mono',monospace;font-size:10.5px;color:var(--txt3);margin-top:8px;">* function-level; one manual auth toggle remains — see “Your move”.</p>
 
@@ -139,7 +139,8 @@
     <h2>How auth works now</h2>
     <p class="h2sub">Everything converges on one rule: <b style="color:var(--txt)">Echo trusts exactly one person — the Owner</b> — on every transport.</p>
     <div class="diagram">
-      <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Overpass Mono, monospace">
+      <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="Overpass Mono, monospace" role="img" aria-label="Auth architecture: three clients converge on Owner-gated Supabase">
+        <title>Auth architecture: three clients converge on Owner-gated Supabase</title>
         <!-- clients -->
         <g>
           <rect x="20" y="30" width="170" height="52" rx="9" fill="#1a1a2e" stroke="#4E79A7" stroke-width="1"/>
@@ -212,12 +213,13 @@
         <h3>Test suite: measure before deciding <span class="badge b-done">done</span></h3>
         <p>Shipped — see above. The scoreboard exists and produced its first baseline; every future tuning change gets a before/after number.</p>
       </div>
-      <div class="tl-item">
-        <h3>Dashboard login + Vercel deploy <span class="badge b-next">next up</span></h3>
-        <p>ADR-0020: same Owner account as MCP, real check inside each API route (<span class="mono">requireOwner()</span>), middleware only redirects to <span class="mono">/login</span>. Then the dashboard finally goes public-URL, private-access.</p>
+      <div class="tl-item done">
+        <h3>Dashboard login + Vercel deploy <span class="badge b-done">done</span></h3>
+        <p>ADR-0020 shipped and live at <span class="mono">echo-rlvs.vercel.app</span>: <span class="mono">requireOwner()</span> inside all 9 API handlers (getUser() + Owner-id check, fail-closed), <span class="mono">proxy.ts</span> as UX redirect and sole refresh-token writer, styled <span class="mono">/login</span>, sign-out in the sidebar. Verified live: sessionless → 401/redirect; a valid non-Owner Supabase session → still 401. Vercel SSO protection disabled per the ADR — Supabase Auth is the front door.</p>
+        <div class="why"><b>Reviewed before publish:</b> deep-reasoner's adversarial pass confirmed all handlers gated and no unauthenticated path to service-role; its one finding (proxy failing open on unset env) was fixed pre-deploy.</div>
       </div>
-      <div class="tl-item">
-        <h3>Retrieval upgrade <span class="badge b-park">parked — now with data</span></h3>
+      <div class="tl-item run">
+        <h3>Retrieval upgrade <span class="badge b-next">next up — with data</span></h3>
         <p>The original “make Echo better at saving &amp; retrieving” goal. The baseline says search mostly works; design against the misses the eval surfaces, starting with paraphrase-style queries.</p>
       </div>
     </div>
@@ -243,6 +245,11 @@
         <span class="path">Supabase → Auth → Passwords → “Prevent leaked passwords”</span>
       </div>
       <div class="card">
+        <h3>Unlock 1Password to sign today's commits</h3>
+        <p>The auth work is finished, verified, and deployed — but <span class="mono">op-ssh-sign</span> is refusing, so three planned commits are sitting in the working tree. Unlock 1Password and ask Claude to commit.</p>
+        <span class="path">git config commit.gpgsign=true · agent: 1Password</span>
+      </div>
+      <div class="card">
         <h3>Review the drafted golden queries</h3>
         <p>Claude drafted the 20 queries from your live corpus instead of interviewing you. They’re grounded in real thoughts, but only you know the right answers — edit or replace them before trusting eval deltas.</p>
         <span class="path">evals/eval-queries.echo.json · private, never committed</span>
@@ -251,7 +258,7 @@
   </section>
 
   <div class="foot">
-    <span>echo · main @ 046f2a7</span>
+    <span>echo · main @ d88c74f (+3 commits pending signature) · live: echo-rlvs.vercel.app</span>
     <span>decisions: ADR-0019 · ADR-0020 · CONTEXT.md</span>
   </div>
 
