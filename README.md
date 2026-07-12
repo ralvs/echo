@@ -393,6 +393,11 @@ echo/
 │   ├── types.ts            # Re-export of _shared/types.ts
 │   ├── supabase.ts
 │   └── store.ts            # Zustand store
+├── evals/                  # Retrieval eval suite (golden queries stay private)
+│   ├── run-eval.ts         # Scoreboard CLI: nDCG@10, recall@10, MRR@10, hit-rate@3
+│   ├── eval.ts             # Pure metric + judgment logic (+ eval.test.ts)
+│   ├── eval-queries.sample.json  # Committed shape example
+│   └── eval-queries.echo.json    # Real golden queries — gitignored, never committed
 ├── scripts/
 │   ├── claude-hooks/
 │   │   ├── stop-hook.ts        # Stop hook — feeds the last turn to the ingestion workflow
@@ -408,7 +413,9 @@ echo/
 │   ├── mine-claude-transcripts.ts           # Mine CLI entry point
 │   ├── mine-claude-transcripts.allowlist.ts # Hardcoded project allowlist
 │   ├── backfill-relations.ts                # Backfill thought_relations graph
-│   └── backfill-entities.ts                 # Backfill the entity graph (API-free)
+│   ├── backfill-entities.ts                 # Backfill the entity graph (API-free)
+│   ├── reembed-thoughts.ts                  # Re-embed the whole corpus (ADR-0021 backfill)
+│   └── review-eval-queries.ts               # Render golden queries as readable Markdown for review
 ├── skills/                 # Prompt-only skill packs over the Echo MCP tools
 │   ├── meeting-synthesis/
 │   ├── research-synthesis/
@@ -469,6 +476,14 @@ NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable-key>
 SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 AI_GATEWAY_API_KEY=<vercel-ai-gateway-key>
+
+# Single trusted user (ADR-0020): requireOwner() compares session user id to this
+ECHO_OWNER_USER_ID=<owner-user-uuid>
+
+# Owner display name — anchors embedding text with "About <owner>: ..." (ADR-0021).
+# Must be set in every runtime that writes embeddings, or new captures drift
+# from the anchored corpus.
+ECHO_OWNER_NAME=<owner-first-name>
 ```
 
 Edge function secrets (set via Supabase dashboard or CLI):
@@ -477,6 +492,7 @@ Edge function secrets (set via Supabase dashboard or CLI):
 MCP_ACCESS_KEY=<access key for reembed-thoughts function>
 AI_GATEWAY_API_KEY=<vercel-ai-gateway-key>
 SUPABASE_SERVICE_ROLE_KEY=<service role key>
+ECHO_OWNER_NAME=<owner-first-name>
 ```
 
 ### Local development
@@ -508,6 +524,7 @@ supabase functions deploy echo-mcp
 supabase secrets set AI_GATEWAY_API_KEY=<value>
 supabase secrets set ECHO_PUBLISHABLE_KEY=<your sb_publishable_... key>
 supabase secrets set ECHO_OWNER_USER_ID=<value>
+supabase secrets set ECHO_OWNER_NAME=<owner first name>
 
 # Deploy the OAuth consent page (its own standalone Vercel project — see consent/README.md)
 cd consent && vercel --prod && cd ..
@@ -527,7 +544,9 @@ vercel --prod
 | Single `thoughts` table with JSONB metadata | No fragmentation to solve; avoids fan-out routing complexity |
 | Real columns for `due_at`, `priority`, `category` | Need efficient range queries and sorting; JSONB can't be indexed the same way |
 | Bearer token auth on MCP (not Supabase JWT) | Supabase gateway doesn't support MCP-level JWT auth yet; publishable key is simpler and sufficient for personal use |
-| MCP resource server accepts static token *or* OAuth ([ADR-0019](docs/adr/0019-mcp-resource-server-accepts-bearer-token-or-oauth.md)) | Claude Desktop/web/iOS have no UI for a custom bearer header — only an OAuth 2.1 client works there; static token kept for Claude Code until migrated |
+| MCP resource server is OAuth-only ([ADR-0019](docs/adr/0019-mcp-resource-server-accepts-bearer-token-or-oauth.md)) | Claude Desktop/web/iOS have no UI for a custom bearer header — only an OAuth 2.1 client works there; the legacy static-token path was removed in July 2026 once Claude Code migrated |
+| Dashboard auth reuses the MCP Owner identity ([ADR-0020](docs/adr/0020-dashboard-auth-reuses-the-mcp-owner-identity.md)) | One trusted user on every transport: `requireOwner()` inside every API handler validates the Supabase session and matches `ECHO_OWNER_USER_ID`, fail-closed; middleware is UX-only |
+| Embedding text is owner-anchored ([ADR-0021](docs/adr/0021-embedding-text-is-owner-anchored.md)) | First-person captures never name the Owner but queries do — prefixing "About <owner>:" closes that perspective gap; measured +0.02 nDCG@10 and turned the worst query from a miss into a rank-1 hit |
 | OAuth consent page is a standalone static Vercel project (`consent/`), not a Supabase Edge Function | Supabase's edge gateway force-rewrites `text/html` to `text/plain` on the default `*.supabase.co` domain; HTML can't be served from a function there without a paid custom domain |
 | `verify_jwt = false` in config.toml | Required because the MCP client sends a custom Bearer token, not a Supabase JWT |
 | Runtime-neutral `_shared` module layer | Capture, resolve, extraction, and page lifecycles are implemented once; Next.js and the edge function are thin adapters, so the two runtimes cannot drift |
