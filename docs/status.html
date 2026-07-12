@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Echo — Project Status · July 5, 2026</title>
+<title>Echo — Project Status · July 12, 2026</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Overpass+Mono:wght@300..700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <style>
@@ -94,43 +94,40 @@
 <div class="wrap">
 
   <header>
-    <div class="stamp">Project status · July 5, 2026</div>
+    <div class="stamp">Project status · July 12, 2026</div>
     <h1>Echo, <em>right now</em></h1>
     <p class="sub">One page for humans: what shipped, what was decided, what runs next, and the one thing only Renan can click.</p>
   </header>
 
   <div class="kpis">
-    <div class="kpi"><div class="n">9</div><div class="l">API handlers behind requireOwner()</div></div>
-    <div class="kpi"><div class="n">158</div><div class="l">tests passing</div></div>
-    <div class="kpi"><div class="n">0.93</div><div class="l">retrieval nDCG@10 baseline</div></div>
-    <div class="kpi"><div class="n">1</div><div class="l">task queued: retrieval</div></div>
+    <div class="kpi"><div class="n">0.88</div><div class="l">nDCG@10 · was 0.86 pre-anchor*</div></div>
+    <div class="kpi"><div class="n">0.92</div><div class="l">hit-rate@3 · was 0.88</div></div>
+    <div class="kpi"><div class="n">164</div><div class="l">tests (151 pass, 13 skip-safe)</div></div>
+    <div class="kpi"><div class="n">0</div><div class="l">tasks queued — backlog clear</div></div>
   </div>
-  <p style="font-family:'Overpass Mono',monospace;font-size:10.5px;color:var(--txt3);margin-top:8px;">* function-level; one manual auth toggle remains — see “Your move”.</p>
+  <p style="font-family:'Overpass Mono',monospace;font-size:10.5px;color:var(--txt3);margin-top:8px;">* over the expanded 25-query set, which includes 5 new adversarial paraphrase probes; the July-5 “0.93” was 20 easier queries with a recall-blind metric.</p>
 
   <section>
     <h2>Shipped today <span class="badge b-done">done</span></h2>
     <div class="rule"></div>
     <div class="tl">
       <div class="tl-item done">
-        <h3>Database hardening, live</h3>
-        <p>The three <span class="mono">SECURITY DEFINER</span> functions (<span class="mono">upsert_entity</span>, <span class="mono">upsert_entity_edge</span>, <span class="mono">get_thought_stats</span>) were callable by anyone with the public API key. Migration <span class="mono">00024</span> revoked public execute and pinned the mutable <span class="mono">search_path</span>. Applied to production, advisors verified clean, capture flow re-tested.</p>
+        <h3>The July-5 auth commits, signed and landed</h3>
+        <p>1Password unblocked; the ADR-0020 working tree became four conventional commits (auth core, API gating, docs, lint chores). Working tree clean for the first time in a week.</p>
       </div>
       <div class="tl-item done">
-        <h3>Graphify-style knowledge graph</h3>
-        <p>The dashboard graph canvas now speaks Graphify’s visual language — Tableau-10 palette on deep navy, node size by √degree, labels only on hubs, dashed low-confidence edges — plus a full interactive sidebar: node search, click-to-hide cluster legend, and a node inspector with neighbors.</p>
+        <h3>Eval scoreboard grew recall-sensitive metrics</h3>
+        <p>The old nDCG@10 built its ideal ranking from <em>retrieved</em> results only — retrieve 1 of 3 relevant docs at rank 1 and it still scored 1.0. Added <span class="mono">recall@10</span>, <span class="mono">MRR@10</span>, and per-query first-relevant-rank alongside it, plus 5 adversarial paraphrase queries (salary wordings, an “Engram” rename probe, an “Isabella” alias probe).</p>
       </div>
       <div class="tl-item done">
-        <h3>Backlog reevaluated, decisions grilled</h3>
-        <p>Both open handoffs were re-verified against reality. The iOS/OAuth work: already done. What remained was interrogated one branch at a time and locked in as ADR-0020, an amended plan for the legacy token, and a measurement-first test strategy. Glossary seeded in <span class="mono">CONTEXT.md</span> (Owner, Thought, Entity, Community).</p>
+        <h3>Root cause of the salary miss: the perspective gap</h3>
+        <p>Measured, not guessed. Not alias fragmentation (the Engram and Isabella probes passed), not the 0.5 threshold, not the candidate pool (expanding it moved nothing). The raise thought is written first-person — “Got a raise…” — so it never says “Renan”, while every query and every winning profile thought does. Its cosine sat at 0.34 vs competitors’ 0.57.</p>
+        <div class="why"><b>The July-5 hypothesis, half right:</b> capture-side rot was the right category, but the rot is perspective, not aliases. The graph-context half stays parked — the eval can’t score it yet.</div>
       </div>
       <div class="tl-item done">
-        <h3>Measurement suite: eval, integration, perf</h3>
-        <p>Three tiers, modeled on <b>lore</b>. A golden-query scoreboard (<span class="mono">bun run eval</span>) scores 20 queries through the real search path against the live corpus: <b style="color:var(--txt)">mean nDCG@10 = 0.927, hit-rate@3 = 0.95</b>. Skip-safe DB integration tests on a local Supabase stack cover hybrid-search ranking fusion, entity RPC semantics, and a regression that the 00024-hardened RPCs stay locked to <span class="mono">service_role</span>. An opt-in perf harness (<span class="mono">ECHO_PERF=1</span>) prints p50/p95: hybrid_search 69&thinsp;ms @ 10k thoughts, entity-graph analytics 7&thinsp;ms @ 2k nodes — ADR-0018’s persistence trigger is nowhere close.</p>
-        <div class="why"><b>First data point for the hypothesis:</b> the one true miss was “what is Renan’s current salary” — the March raise thought never surfaced. Paraphrase fragmentation, not raw recall.</div>
-      </div>
-      <div class="tl-item done">
-        <h3>Repo cleanup</h3>
-        <p>Stale demo pages deleted, <span class="mono">deno.lock</span> tracked, edge-function <span class="mono">node_modules</span> ignored.</p>
+        <h3>Owner-anchored embeddings, live (ADR-0021)</h3>
+        <p><span class="mono">buildEmbeddingText</span> now prefixes every thought with “About Renan:” via <span class="mono">ECHO_OWNER_NAME</span>, threaded through both runtimes; all 49 vectors re-embedded with the new <span class="mono">reembed-thoughts.ts</span> backfill. Also: <span class="mono">hybrid_search</span> now over-fetches a 3× candidate pool so decay reranking can actually promote. Edge function redeployed with the secret; Vercel env var added.</p>
+        <div class="why"><b>Result:</b> the salary query went from nDCG 0 to a rank-1 hit; nDCG@10 0.862 → 0.884, hit-rate@3 0.88 → 0.92 on the harder 25-query set. Known residual: two deliberately brutal paraphrases (“earn per month”, “monthly income”) still rank ~30th — fixing them means extraction-side synonym topics, deferred as not worth the machinery yet.</div>
       </div>
     </div>
   </section>
@@ -172,9 +169,9 @@
           <text x="368" y="52" fill="#e8e4de" font-size="12" text-anchor="middle">echo-mcp gate</text>
           <text x="368" y="69" fill="#9a9589" font-size="10" text-anchor="middle">getUser(token) → Owner?</text>
 
-          <rect x="278" y="122" width="180" height="52" rx="9" fill="#141311" stroke="rgba(154,149,137,.4)" stroke-dasharray="4 3"/>
+          <rect x="278" y="122" width="180" height="52" rx="9" fill="#141311" stroke="rgba(154,149,137,.4)"/>
           <text x="368" y="144" fill="#e8e4de" font-size="12" text-anchor="middle">requireOwner()</text>
-          <text x="368" y="161" fill="#9a9589" font-size="10" text-anchor="middle">next: ADR-0020, 4 API routes</text>
+          <text x="368" y="161" fill="#7fbf92" font-size="10" text-anchor="middle">ADR-0020 · all 9 handlers ✓</text>
         </g>
         <g stroke="#9a9589" stroke-width="1" fill="none" opacity="0.7">
           <path d="M458 56 H 530 V 118"/>
@@ -218,20 +215,20 @@
         <p>ADR-0020 shipped and live at <span class="mono">echo-rlvs.vercel.app</span>: <span class="mono">requireOwner()</span> inside all 9 API handlers (getUser() + Owner-id check, fail-closed), <span class="mono">proxy.ts</span> as UX redirect and sole refresh-token writer, styled <span class="mono">/login</span>, sign-out in the sidebar. Verified live: sessionless → 401/redirect; a valid non-Owner Supabase session → still 401. Vercel SSO protection disabled per the ADR — Supabase Auth is the front door.</p>
         <div class="why"><b>Reviewed before publish:</b> deep-reasoner's adversarial pass confirmed all handlers gated and no unauthenticated path to service-role; its one finding (proxy failing open on unset env) was fixed pre-deploy.</div>
       </div>
-      <div class="tl-item run">
-        <h3>Retrieval upgrade <span class="badge b-next">next up — with data</span></h3>
-        <p>The original “make Echo better at saving &amp; retrieving” goal. The baseline says search mostly works; design against the misses the eval surfaces, starting with paraphrase-style queries.</p>
+      <div class="tl-item done">
+        <h3>Retrieval upgrade <span class="badge b-done">done</span></h3>
+        <p>Designed twice in parallel (deep-reasoner + Codex, independent), synthesized, then every hypothesis measured before committing. Shipped as ADR-0021 owner-anchored embeddings + candidate-pool reranking — see above. The deferred remainder, each parked with a reason: graph-context on results (eval can’t score it), alias-safe <span class="mono">upsert_entity</span> (alias probes already pass; no measurable win today), extraction-side synonym topics (the two residual paraphrase misses).</p>
       </div>
     </div>
   </section>
 
   <section>
-    <h2>The retrieval hypothesis</h2>
+    <h2>The retrieval hypothesis — verdict</h2>
     <div class="rule"></div>
     <div class="hypo">
-      <h3>It’s probably not the search — it’s the aliases and the missing context.</h3>
-      <p>At ~50 thoughts, semantic search rarely misses outright. The bet: quality degrades from <b style="color:var(--txt)">capture-side rot</b> (the same person or project saved under different names fragments the graph) and <b style="color:var(--txt)">flat results</b> (a thought comes back without its neighbors — the decision that superseded it, the entity’s other mentions). If the eval confirms this, the fix is alias-safe entity resolution at capture time plus graph context attached to search results — not a fancier retriever.</p>
-      <p class="ev">evidence: alias fragmentation already forced migration 00020 (“fix_people_aliases”) · a thought literally reads “Echo (originally called Engram)”</p>
+      <h3>Half right: capture-side rot, yes — but the rot was perspective, not aliases.</h3>
+      <p>The July-5 bet was alias fragmentation plus flat results. The stress eval refuted the alias half (Engram and Isabella probes pass) and confirmed a subtler capture-side gap: <b style="color:var(--txt)">first-person thoughts never name the Owner, third-person queries always do</b>. The fix was one structural line in the embedding text — “About Renan:” — validated offline with cosine probes before touching the corpus, then confirmed live. The flat-results half remains plausible but unmeasurable until the eval learns to score attached context.</p>
+      <p class="ev">method: 3 read-side knobs tried and measured dead (pool, alpha, threshold) before the write-side fix · every step has a before/after eval run</p>
     </div>
   </section>
 
@@ -245,21 +242,21 @@
         <span class="path">Supabase → Auth → Passwords → “Prevent leaked passwords”</span>
       </div>
       <div class="card">
-        <h3>Unlock 1Password to sign today's commits</h3>
-        <p>The auth work is finished, verified, and deployed — but <span class="mono">op-ssh-sign</span> is refusing, so three planned commits are sitting in the working tree. Unlock 1Password and ask Claude to commit.</p>
-        <span class="path">git config commit.gpgsign=true · agent: 1Password</span>
+        <h3>Review the drafted golden queries — now 25</h3>
+        <p>Claude drafted all of them from your live corpus (5 new paraphrase-stress probes added today). They’re grounded in real thoughts, but only you know the right answers — edit or replace them before trusting eval deltas.</p>
+        <span class="path">evals/eval-queries.echo.json · private, never committed</span>
       </div>
       <div class="card">
-        <h3>Review the drafted golden queries</h3>
-        <p>Claude drafted the 20 queries from your live corpus instead of interviewing you. They’re grounded in real thoughts, but only you know the right answers — edit or replace them before trusting eval deltas.</p>
-        <span class="path">evals/eval-queries.echo.json · private, never committed</span>
+        <h3>Push when ready</h3>
+        <p>Eight signed commits are sitting on local <span class="mono">main</span> (four July-5 auth commits, four from today’s retrieval work). Everything is deployed; the push is just history.</p>
+        <span class="path">git push origin main</span>
       </div>
     </div>
   </section>
 
   <div class="foot">
-    <span>echo · main @ d88c74f (+3 commits pending signature) · live: echo-rlvs.vercel.app</span>
-    <span>decisions: ADR-0019 · ADR-0020 · CONTEXT.md</span>
+    <span>echo · main, 8 signed commits ahead of origin · live: echo-rlvs.vercel.app</span>
+    <span>decisions: ADR-0020 · ADR-0021 · CONTEXT.md</span>
   </div>
 
 </div>
