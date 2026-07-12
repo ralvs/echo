@@ -62,14 +62,14 @@ export async function searchThoughts(
 		query_text: query,
 		query_embedding: embedding,
 		match_threshold: threshold,
-		match_count: limit,
+		match_count: Math.max(limit * 3, 30),
 		alpha: SEARCH_TUNING.alpha,
 		filter: {},
 	});
 	if (error) throw new Error(`hybrid_search failed: ${error.message}`);
 
 	const raw = (data ?? []) as RawSearchResult[];
-	const results: ThoughtHit[] = applyDecay(raw.filter((t) => !t.is_bundle));
+	const results: ThoughtHit[] = applyDecay(raw.filter((t) => !t.is_bundle)).slice(0, limit);
 
 	await injectParentContext(deps, results);
 

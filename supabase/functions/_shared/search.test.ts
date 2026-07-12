@@ -154,6 +154,30 @@ describe("searchThoughts", () => {
 
 		await searchThoughts({ db, ai: fakeAi }, "query");
 
-		expect(rpcCalls[0].args).toMatchObject({ alpha: 0.7, match_threshold: 0.5, match_count: 10 });
+		// match_count over-fetches (candidate pool) so post-SQL decay reranking
+		// can promote rows the raw blend ranked below the requested limit.
+		expect(rpcCalls[0].args).toMatchObject({ alpha: 0.7, match_threshold: 0.5, match_count: 30 });
+	});
+
+	it("slices the reranked pool back down to the requested limit", async () => {
+		const now = new Date().toISOString();
+		const hits = Array.from({ length: 15 }, (_, i) => ({
+			id: `t${i}`,
+			content: `thought ${i}`,
+			metadata: {},
+			similarity: 0.9 - i * 0.01,
+			created_at: now,
+			event_at: null,
+			due_at: null,
+			priority: null,
+			category: null,
+			parent_id: null,
+			is_bundle: false,
+		}));
+		const { db } = createFakeDb({ hits });
+
+		const { results } = await searchThoughts({ db, ai: fakeAi }, "query", { limit: 10 });
+
+		expect(results).toHaveLength(10);
 	});
 });
