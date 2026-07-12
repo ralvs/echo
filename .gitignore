@@ -50,3 +50,4 @@ scripts/mine-progress.md
 
 # supabase edge function deps
 supabase/functions/echo-mcp/node_modules/
+evals/eval-queries.review.md
