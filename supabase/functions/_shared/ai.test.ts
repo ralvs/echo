@@ -42,6 +42,16 @@ describe("buildEmbeddingText", () => {
 		);
 	});
 
+	it("anchors content with the owner name when provided", () => {
+		expect(buildEmbeddingText("Got a raise", { topics: ["career"] }, null, "Renan")).toBe(
+			"About Renan: Got a raise\n\nTopics: career",
+		);
+	});
+
+	it("leaves content unanchored when owner name is absent", () => {
+		expect(buildEmbeddingText("note", {}, null, null)).toBe("note");
+	});
+
 	it("ignores empty topics array", () => {
 		expect(buildEmbeddingText("note", { topics: [] }, null)).toBe("note");
 	});

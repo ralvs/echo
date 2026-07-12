@@ -103,7 +103,7 @@ export async function updateThought(
 		extracted,
 		input,
 		source,
-		{ carry, metadataPatch: input.metadata },
+		{ carry, metadataPatch: input.metadata, ownerName: deps.ownerName },
 	);
 
 	// Re-embed enriched text — the vector must always encode the new content.

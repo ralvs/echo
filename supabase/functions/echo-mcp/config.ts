@@ -29,6 +29,10 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 export const supabaseAuthClient = createClient(SUPABASE_URL, ECHO_PUBLISHABLE_KEY);
 
+// Owner display name used to anchor embedding text ("About <owner>: …").
+// Optional: unset produces unanchored embeddings, same as before it existed.
+export const ECHO_OWNER_NAME = Deno.env.get("ECHO_OWNER_NAME") ?? null;
+
 export const DECOMPOSE_MIN_TOKENS = Number(Deno.env.get("DECOMPOSE_MIN_TOKENS") || "200");
 export const DECOMPOSE_ENABLED = Deno.env.get("DECOMPOSE_ENABLED") !== "false";
 

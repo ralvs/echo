@@ -66,7 +66,7 @@ export function registerLintThoughts(server: McpServer) {
 		},
 		async ({ checks, max_items }) => {
 			const report = await lintThoughts(
-				{ db: supabase, ai },
+				{ db: supabase, ai, ownerName: ECHO_OWNER_NAME },
 				{ checks: checks as LintCheck[], maxItems: max_items },
 			);
 

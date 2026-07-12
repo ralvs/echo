@@ -16,8 +16,10 @@ export function updateThought(
 	input: UpdateInput,
 	background?: (work: Promise<unknown>) => void,
 ): Promise<UpdateResult> {
-	return runUpdate({ db: createServiceClient(), ai: nodeAi }, id, input, {
-		source: "echo",
-		background,
-	});
+	return runUpdate(
+		{ db: createServiceClient(), ai: nodeAi, ownerName: process.env.ECHO_OWNER_NAME ?? null },
+		id,
+		input,
+		{ source: "echo", background },
+	);
 }

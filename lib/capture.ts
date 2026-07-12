@@ -22,10 +22,14 @@ export function captureThought(
 	input: CaptureInput,
 	background?: (work: Promise<unknown>) => void,
 ): Promise<CaptureResult> {
-	return runCapture({ db: createServiceClient(), ai: nodeAi }, input, {
-		source: "echo",
-		decompose: DECOMPOSE_ENABLED,
-		decomposeMinTokens: DECOMPOSE_MIN_TOKENS,
-		background,
-	});
+	return runCapture(
+		{ db: createServiceClient(), ai: nodeAi, ownerName: process.env.ECHO_OWNER_NAME ?? null },
+		input,
+		{
+			source: "echo",
+			decompose: DECOMPOSE_ENABLED,
+			decomposeMinTokens: DECOMPOSE_MIN_TOKENS,
+			background,
+		},
+	);
 }

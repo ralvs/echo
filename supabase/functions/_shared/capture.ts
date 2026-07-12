@@ -192,6 +192,7 @@ async function saveSingleThought(
 		extracted,
 		input,
 		source,
+		{ ownerName: deps.ownerName },
 	);
 
 	// Embed enriched text so the vector encodes topics/category/people, not just content.

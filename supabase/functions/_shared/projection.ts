@@ -50,6 +50,8 @@ export type ProjectionOptions = {
 	carry?: Record<string, unknown>;
 	/** Shallow metadata patch merged last (update path's `input.metadata`). */
 	metadataPatch?: Record<string, unknown>;
+	/** Owner display name forwarded to buildEmbeddingText's anchor. */
+	ownerName?: string | null;
 };
 
 function normalizeTopics(topics: string[] | string): string[] {
@@ -120,7 +122,7 @@ export function projectThought(
 		metadata.status = "open";
 	}
 
-	const embeddingText = buildEmbeddingText(content, metadata, columns.category);
+	const embeddingText = buildEmbeddingText(content, metadata, columns.category, options.ownerName);
 
 	return { metadata, columns, embeddingText, personDefinitions };
 }

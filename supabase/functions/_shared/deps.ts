@@ -9,4 +9,7 @@ import type { Ai } from "./model.ts";
 export type EchoDeps = {
 	db: SupabaseClient;
 	ai: Ai;
+	/** The Owner's display name (ECHO_OWNER_NAME), used to anchor embedding
+	 * text. Optional: write paths fall back to unanchored embeddings. */
+	ownerName?: string | null;
 };

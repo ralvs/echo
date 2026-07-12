@@ -115,6 +115,7 @@ export async function backfillPersonAlias(
 			thought.content as string,
 			updatedMetadata,
 			thought.category as string | null,
+			deps.ownerName,
 		);
 		const embedding = await ai.embed(embeddingText);
 

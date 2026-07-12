@@ -119,13 +119,19 @@ Return ONLY valid JSON, no markdown fences or extra text.`;
  * Builds the text that gets embedded for a thought.
  * Appends LLM-extracted metadata as structured suffixes so the vector
  * encodes semantic concepts (topics, category) alongside the raw content.
+ *
+ * When the Owner's name is known, the content is anchored with an
+ * "About <owner>:" prefix. First-person captures ("Got a raise…") otherwise
+ * never mention the Owner, while retrieval queries usually do — the anchor
+ * closes that perspective gap in the vector space.
  */
 export function buildEmbeddingText(
 	content: string,
 	metadata: { topics?: unknown; type?: string; people?: unknown },
 	category: string | null,
+	ownerName?: string | null,
 ): string {
-	const parts = [content];
+	const parts = [ownerName ? `About ${ownerName}: ${content}` : content];
 	const topics = Array.isArray(metadata.topics) ? (metadata.topics as string[]) : [];
 	if (topics.length) parts.push(`Topics: ${topics.join(", ")}`);
 	if (category) parts.push(`Category: ${category}`);

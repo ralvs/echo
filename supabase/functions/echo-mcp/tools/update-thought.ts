@@ -43,7 +43,7 @@ export function registerUpdateThought(server: McpServer) {
 		},
 		async ({ id, content, type, topics, due_at, recurrence, priority, category }) => {
 			const result = await updateThought(
-				{ db: supabase, ai },
+				{ db: supabase, ai, ownerName: ECHO_OWNER_NAME },
 				id,
 				{ content, type, topics, due_at, recurrence, priority, category },
 				{ source: "mcp" },

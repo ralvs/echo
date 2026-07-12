@@ -105,7 +105,7 @@ export function registerCaptureThought(server: McpServer) {
 			}
 
 			const result = await captureThought(
-				{ db: supabase, ai },
+				{ db: supabase, ai, ownerName: ECHO_OWNER_NAME },
 				{
 					content: text,
 					type,
