@@ -3,6 +3,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type Context, Hono } from "hono";
+import { cors } from "hono/cors";
 import { ECHO_OWNER_USER_ID, SUPABASE_URL, supabaseAuthClient } from "./config.ts";
 import { registerCaptureThought } from "./tools/capture-thought.ts";
 import { registerDeleteThought } from "./tools/delete-thought.ts";
@@ -72,6 +73,39 @@ const RESOURCE_METADATA_URL = `${SUPABASE_URL}/functions/v1${RESOURCE_METADATA_P
 const MCP_RESOURCE_URL = `${SUPABASE_URL}/functions/v1/echo-mcp`;
 
 const app = new Hono().basePath("/echo-mcp");
+
+// CORS — required by every browser-context MCP client (Claude web/mobile, Grok).
+// Native clients (Claude Desktop) bypass CORS entirely, which is why this was
+// invisible until a web client tried to connect: the preflight fell through to
+// the POST-only handler below and got a 405 with no Access-Control-* headers,
+// so the real request never fired.
+//
+// Origin "*" is safe here and must NOT become a credentialed config: auth is a
+// bearer token the client holds, never a cookie, so a hostile origin gains
+// nothing by being allowed to *send* a request it cannot authenticate. Adding
+// credentials:true would both break the "*" wildcard and start honouring
+// ambient cookies — don't.
+//
+// exposeHeaders WWW-Authenticate is load-bearing: it carries the
+// resource_metadata hint that points OAuth clients at the discovery document,
+// and browsers hide unlisted response headers from the client JS.
+app.use(
+	"*",
+	cors({
+		origin: "*",
+		allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+		allowHeaders: [
+			"authorization",
+			"content-type",
+			"accept",
+			"mcp-protocol-version",
+			"mcp-session-id",
+			"last-event-id",
+		],
+		exposeHeaders: ["WWW-Authenticate", "mcp-session-id"],
+		maxAge: 86400,
+	}),
+);
 
 // RFC 9728 Protected Resource Metadata — unauthenticated, tells OAuth clients
 // (Claude) which authorization server to use for this MCP resource.
