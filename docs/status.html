@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Echo — Project Status · July 12, 2026</title>
+<title>Echo — Project Status · August 4, 2026</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Overpass+Mono:wght@300..700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 <style>
@@ -94,26 +94,51 @@
 <div class="wrap">
 
   <header>
-    <div class="stamp">Project status · July 12, 2026</div>
+    <div class="stamp">Project status · August 4, 2026</div>
     <h1>Echo, <em>right now</em></h1>
     <p class="sub">One page for humans: what shipped, what was decided, what runs next, and the one thing only Renan can click.</p>
   </header>
 
   <div class="kpis">
-    <div class="kpi"><div class="n">0.88</div><div class="l">nDCG@10 · was 0.86 pre-anchor*</div></div>
-    <div class="kpi"><div class="n">0.92</div><div class="l">hit-rate@3 · was 0.88</div></div>
-    <div class="kpi"><div class="n">164</div><div class="l">tests (151 pass, 13 skip-safe)</div></div>
-    <div class="kpi"><div class="n">0</div><div class="l">tasks queued — backlog clear</div></div>
+    <div class="kpi"><div class="n">70→0</div><div class="l">days since a capture · outage closed*</div></div>
+    <div class="kpi"><div class="n">236</div><div class="l">tests (223 pass, 13 skip-safe)</div></div>
+    <div class="kpi"><div class="n">10</div><div class="l">proposals in the first dream report</div></div>
+    <div class="kpi"><div class="n">$0.06</div><div class="l">per nightly run · cap $0.50</div></div>
   </div>
-  <p style="font-family:'Overpass Mono',monospace;font-size:10.5px;color:var(--txt3);margin-top:8px;">* over the expanded, Renan-reviewed 24-query set incl. 4 adversarial paraphrase probes; the July-5 “0.93” was 20 easier queries with a recall-blind metric.</p>
+  <p style="font-family:'Overpass Mono',monospace;font-size:10.5px;color:var(--txt3);margin-top:8px;">* the corpus had taken no new thought since 2026-05-26. Retrieval metrics (nDCG@10 0.88, hit-rate@3 0.92 over the reviewed 24-query set) are unchanged — nothing this cycle touched ranking.</p>
 
   <section>
     <h2>Shipped today <span class="badge b-done">done</span></h2>
     <div class="rule"></div>
     <div class="tl">
       <div class="tl-item done">
-        <h3>The July-5 auth commits, signed and landed</h3>
-        <p>1Password unblocked; the ADR-0020 working tree became four conventional commits (auth core, API gating, docs, lint chores). Working tree clean for the first time in a week.</p>
+        <h3>Echo had been silently dead for 70 days</h3>
+        <p>The corpus took its last thought on <b>2026-05-26</b>. Three independent failures had killed each capture surface in turn, and a fourth hid all of them. <span class="mono">ECHO_OWNER_NAME</span> was referenced but never imported in three MCP tools, so every MCP write threw <span class="mono">ECHO_OWNER_NAME is not defined</span> — that killed Claude Desktop capture. The hooks POSTed to <span class="mono">localhost:3000</span>, which is now a different app entirely. Even at the right port, <span class="mono">requireOwner()</span> would have 401'd them, because ADR-0020 added a cookie gate the hooks never learned about.</p>
+        <div class="why"><b>Why it stayed invisible:</b> hooks catch everything and <span class="mono">exit 0</span> by design, so a session never fails when capture fails. Nothing watched the corpus for silence. The missing import escaped review because <span class="mono">tsconfig.json</span> excludes <span class="mono">supabase/functions/echo-mcp</span> from <span class="mono">tsc</span> and there was no Deno check — so nothing type-checked those files at all.</div>
+      </div>
+      <div class="tl-item done">
+        <h3>Capture repaired, and made loud when it breaks</h3>
+        <p>Ingestion no longer speaks HTTP. It calls the capture pipeline directly on a service-role client, as the backfill scripts already did — no port, no dev server, no auth gate, which is what a 3am job needs. Background compounding work (topic pages, entity links) is queued and awaited via <span class="mono">flushBackground()</span>, because Next keeps floating promises alive with <span class="mono">after()</span> and a Bun script simply exits and kills them. Failures now append to <span class="mono">~/Library/Logs/echo/ingest.err.log</span>, and the nightly run flags <span class="mono">capture_pipeline_stale</span> when nothing has landed in 48h — surfaced in Desktop, the surface that broke.</p>
+        <div class="why"><b>Guard against recurrence:</b> a Biome <span class="mono">noUndeclaredVariables</span> override now covers <span class="mono">supabase/functions/**</span>. Verified by reintroducing the bug — it flagged the exact line. <span class="mono">deno check</span> is available as <span class="mono">check:deno</span> but is not yet a gate: it surfaces 57 pre-existing type errors that are their own cleanup.</div>
+      </div>
+      <div class="tl-item done">
+        <h3>Grok joins Claude as a first-class source</h3>
+        <p>Grok CLI sessions at <span class="mono">~/.grok/sessions/</span> parse into the same <span class="mono">Turn</span> shape as Claude transcripts, so the prefilter and ingest path work unchanged — <span class="mono">source_kind: "grok-transcript"</span>. Grok web has no local transcript and never will, so it captures the same way Desktop does: over MCP. All Echo skills, including the new <span class="mono">/dream</span>, are now symlinked into both <span class="mono">~/.claude/skills</span> and <span class="mono">~/.grok/skills</span> from one source of truth in the repo.</p>
+      </div>
+      <div class="tl-item done">
+        <h3>Employer work is excluded structurally, not by memory</h3>
+        <p>This machine also runs Cursor for employer repositories at <span class="mono">/Volumes/stuff/{lss,members,engines…}</span> — siblings of <span class="mono">renan/</span>, not children. Claude Code can run inside Cursor and would write those sessions into the same <span class="mono">~/.claude/projects/</span> tree. <span class="mono">INGEST_ROOTS</span> admits <span class="mono">/Volumes/stuff/renan/</span> only: new personal projects need no edit, and anything else is excluded by default rather than by remembering to block it.</p>
+        <div class="why"><b>Verified against the real filesystem,</b> not just fixtures: 45 transcript files, 81 turns, zero employer paths and zero home-directory sessions. The guard runs before any file content is read, realpaths first so <span class="mono">../</span> and symlinks can't slip through, and fails closed when a cwd can't be determined.</div>
+      </div>
+      <div class="tl-item done">
+        <h3>The nightly <span class="mono">/dream</span> routine, running at 3am</h3>
+        <p>A launchd agent scans the last 30 hours of Claude and Grok sessions, ingests them, then diffs them against the corpus and leaves a numbered list of proposed memory changes with a transcript quote as evidence for each. You approve with <span class="mono">/dream apply 1,3</span>. <span class="mono">dream()</span> is read-only — a test drives it against a database that throws on any write. <span class="mono">DreamAction</span> has no delete verb; the strongest thing it can do is <span class="mono">expire</span>, which hides a memory and is reversible.</p>
+        <div class="why"><b>Where proposals live:</b> one <span class="mono">is_bundle</span> row per night in <span class="mono">thoughts</span> (ADR-0022). Bundles are already excluded from search, listing, lint, relation detection and page compilation — that's what keeps a proposal quoting your transcripts out of the corpus it describes. One row per night also means <span class="mono">1,3</span> means the same thing at 9am as at 3am. Verified live: the report is invisible to <span class="mono">search_thoughts</span> and <span class="mono">list_thoughts</span>, readable only through <span class="mono">dream_review</span>.</div>
+      </div>
+      <div class="tl-item done">
+        <h3>The first real run caught a data-loss bug in the design</h3>
+        <p>Against the real corpus, 5 of 8 proposals were destructive false positives: <span class="mono">findDuplicates</span> flagged four <em>distinct</em> air-conditioner service records — different units, dates and costs, near-identical sentence structure — at 0.95–0.97 cosine, and the merge content was mechanically the longer of the two strings. Applying one would have overwritten one unit's record and expired the other.</p>
+        <div class="why"><b>The category error:</b> <span class="mono">findDuplicates</span> is candidate generation for human eyeballing — its own tool output says “delete one or merge”. Turning it into a pre-filled destructive action was wrong. Duplicate pairs now pass through <span class="mono">confirmDuplicateMerges</span>, which must affirmatively find the pair records the same entity/event and authors the merged text itself. Uncertainty resolves to “not a duplicate”: a false negative costs one night, a false positive destroys a record. The 0.95 threshold in <span class="mono">lint.ts</span> is deliberately unchanged — a loose net plus human eyes is right for the lint tool. <b>Rule:</b> a heuristic good enough for a human to eyeball is not automatically good enough to pre-fill a destructive action.</div>
       </div>
       <div class="tl-item done">
         <h3>Eval scoreboard grew recall-sensitive metrics</h3>
@@ -237,6 +262,16 @@
     <div class="rule"></div>
     <div class="grid2">
       <div class="card">
+        <h3>Reconnect the Echo connector <span class="badge b-you">manual</span></h3>
+        <p>MCP clients fetch the tool list when they connect, so <span class="mono">dream_review</span> and <span class="mono">dream_apply</span> won't appear in Claude Desktop or Grok until the Echo connector is reconnected. Until then, review from a terminal with <span class="mono">bun run dream</span>.</p>
+        <span class="path">claude.ai → Settings → Connectors → Echo → reconnect</span>
+      </div>
+      <div class="card">
+        <h3>Review the first dream report <span class="badge b-you">manual</span></h3>
+        <p>10 proposals are pending from the 2026-08-04 run, all <span class="mono">create</span> — no merges survived the confirmation gate. Nothing is applied until you type numbers. Unreviewed proposals expire after 14 days.</p>
+        <span class="path">/dream review · report dream:2026-08-04</span>
+      </div>
+      <div class="card">
         <h3>Leaked-password protection <span class="badge b-park">parked</span></h3>
         <p>The HaveIBeenPwned check turns out to be a Supabase Pro-plan feature — not available on the current plan. Parked until a plan upgrade; revisit then.</p>
         <span class="path">Supabase → Auth → Passwords · requires Pro plan</span>
@@ -248,8 +283,8 @@
       </div>
       <div class="card">
         <h3>Pushed <span class="badge b-done">done</span></h3>
-        <p>All of today’s work is on <span class="mono">origin/main</span>: the four July-5 auth commits, the retrieval upgrade, the review renderer. Deployed everywhere it needs to be.</p>
-        <span class="path">git log origin/main</span>
+        <p>All of today’s work is on <span class="mono">origin/main</span>: the capture repair, the scope guard, Grok ingestion, the dream module and its MCP tools, ADR-0022. <span class="mono">echo-mcp</span> redeployed; the launchd agent is bootstrapped and has run clean twice.</p>
+        <span class="path">git log origin/main · launchctl print gui/$UID/id.alves.echo.dream</span>
       </div>
     </div>
   </section>
