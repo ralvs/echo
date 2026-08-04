@@ -210,14 +210,24 @@ function createFakeDb(opts: FakeDbOptions = {}) {
 	};
 }
 
-/** Routes by prompt: dream classification calls return `proposals`, every
- * other call (relation classification, metadata extraction) returns an
- * empty/neutral payload so capture side effects stay inert in these tests. */
-function fakeAi(proposals: Row[] = []): Ai & { generateCalls: number } {
+/** Routes by prompt: dream classification calls return `proposals`, duplicate
+ * confirmation calls (matched on "same_fact", unique to that prompt) return
+ * `duplicateVerdicts`, every other call (relation classification, metadata
+ * extraction) returns an empty/neutral payload so capture side effects stay
+ * inert in these tests. */
+function fakeAi(
+	proposals: Row[] = [],
+	duplicateVerdicts: Row[] | string = [],
+): Ai & { generateCalls: number } {
 	const ai = {
 		generateCalls: 0,
 		async generate(req: ModelRequest): Promise<string> {
 			ai.generateCalls++;
+			if (req.system.includes("same_fact")) {
+				return typeof duplicateVerdicts === "string"
+					? duplicateVerdicts
+					: JSON.stringify({ verdicts: duplicateVerdicts });
+			}
 			if (req.system.includes("propose")) return JSON.stringify({ proposals });
 			if (req.system.includes("Classify the relationship")) return "{}";
 			return JSON.stringify({
@@ -506,10 +516,106 @@ describe("dream()", () => {
 		const result = await dream({ db, ai }, input);
 		expect(result.proposals).toEqual([]);
 	});
+
+	const duplicatePair: Row = {
+		thought_a: "ac-living",
+		thought_b: "ac-office",
+		content_a:
+			"AC cleaning service — Living room unit. Last cleaned: April 14, 2026. Cost: R$ 130.",
+		content_b: "AC cleaning service — Office unit. Last cleaned: April 2, 2026. Cost: R$ 150.",
+		similarity: 0.97,
+	};
+
+	it("drops a duplicate pair the LLM rejects (same_fact: false) — no merge proposal, duplicatesRejected is 1", async () => {
+		const { db } = createFakeDb({ duplicates: [duplicatePair] });
+		const ai = fakeAi(
+			[],
+			[
+				{
+					pair_id: "ac-living|ac-office",
+					same_fact: false,
+					merged_content: "",
+					reason: "Different AC units, different dates and costs.",
+				},
+			],
+		);
+
+		const input: DreamInput = {
+			turns: [],
+			window: { from: "2026-08-03", to: "2026-08-04" },
+			now: new Date("2026-08-04T06:00:00Z"),
+		};
+
+		const result = await dream({ db, ai }, input);
+		expect(result.proposals.some((p) => p.action === "merge")).toBe(false);
+		expect(result.duplicatesRejected).toBe(1);
+	});
+
+	it("a duplicate pair the LLM confirms produces exactly one merge proposal whose proposed_content is the LLM's merged_content", async () => {
+		const { db } = createFakeDb({ duplicates: [duplicatePair] });
+		const mergedContent =
+			"AC cleaning: Living room unit (April 14, 2026, R$130) and Office unit (April 2, 2026, R$150).";
+		const ai = fakeAi(
+			[],
+			[
+				{
+					pair_id: "ac-living|ac-office",
+					same_fact: true,
+					merged_content: mergedContent,
+					reason: "Same recurring AC service log, just two entries for the same period.",
+				},
+			],
+		);
+
+		const input: DreamInput = {
+			turns: [],
+			window: { from: "2026-08-03", to: "2026-08-04" },
+			now: new Date("2026-08-04T06:00:00Z"),
+		};
+
+		const result = await dream({ db, ai }, input);
+		const merges = result.proposals.filter((p) => p.action === "merge");
+		expect(merges).toHaveLength(1);
+		expect(merges[0].proposed_content).toBe(mergedContent);
+		expect(merges[0].proposed_content).not.toBe(duplicatePair.content_a);
+		expect(merges[0].proposed_content).not.toBe(duplicatePair.content_b);
+		expect(result.duplicatesRejected).toBe(0);
+	});
+
+	it("malformed/unparseable confirmation output produces no merge proposals and does not throw", async () => {
+		const { db } = createFakeDb({ duplicates: [duplicatePair] });
+		const ai = fakeAi([], "not json {{{");
+
+		const input: DreamInput = {
+			turns: [],
+			window: { from: "2026-08-03", to: "2026-08-04" },
+			now: new Date("2026-08-04T06:00:00Z"),
+		};
+
+		await expect(dream({ db, ai }, input)).resolves.toBeDefined();
+		const resolved = await dream({ db, ai }, input);
+		expect(resolved.proposals.some((p) => p.action === "merge")).toBe(false);
+		expect(resolved.duplicatesRejected).toBe(1);
+	});
+
+	it("a pair with no verdict returned at all produces no proposal", async () => {
+		const { db } = createFakeDb({ duplicates: [duplicatePair] });
+		const ai = fakeAi([], []); // empty verdicts array — no verdict for the pair
+
+		const input: DreamInput = {
+			turns: [],
+			window: { from: "2026-08-03", to: "2026-08-04" },
+			now: new Date("2026-08-04T06:00:00Z"),
+		};
+
+		const result = await dream({ db, ai }, input);
+		expect(result.proposals.some((p) => p.action === "merge")).toBe(false);
+		expect(result.duplicatesRejected).toBe(1);
+	});
 });
 
 describe("lintFindingsToProposals", () => {
-	it("maps duplicates to merge with both target ids", () => {
+	it("ignores duplicates entirely — they are gated behind confirmDuplicateProposals in dream(), not mapped mechanically here", () => {
 		const report: LintReport = {
 			duplicates: {
 				pairs: [
@@ -524,32 +630,7 @@ describe("lintFindingsToProposals", () => {
 			},
 		};
 		const proposals = lintFindingsToProposals(report);
-		expect(proposals).toHaveLength(1);
-		expect(proposals[0]).toMatchObject({ action: "merge", category: "duplicate" });
-		expect(proposals[0].target_ids).toEqual(["a1", "a2"]);
-		// proposed_content must be the resulting memory text, not a directive
-		// sentence — the directive lives in rationale instead.
-		expect(proposals[0].proposed_content).toBe("loves pizza");
-		expect(proposals[0].proposed_content).not.toMatch(/^Merge near-duplicate/);
-		expect(proposals[0].rationale).toMatch(/^Merge near-duplicate/);
-	});
-
-	it("maps duplicates to merge, keeping the longer/more complete side as proposed_content", () => {
-		const report: LintReport = {
-			duplicates: {
-				pairs: [
-					{
-						thought_a: "a1",
-						thought_b: "a2",
-						content_a: "pizza",
-						content_b: "loves pepperoni pizza from Luigi's",
-						similarity: 0.9,
-					},
-				],
-			},
-		};
-		const proposals = lintFindingsToProposals(report);
-		expect(proposals[0].proposed_content).toBe("loves pepperoni pizza from Luigi's");
+		expect(proposals).toHaveLength(0);
 	});
 
 	it("maps stale facts to expire with the single target id, proposed_content for display only", () => {
@@ -863,6 +944,7 @@ describe("writeDreamReport containment", () => {
 			health: { newest_capture_at: "2026-08-04T00:00:00Z", capture_pipeline_stale: false },
 			truncated: false,
 			dropped: 0,
+			duplicatesRejected: 0,
 			window: { from: "2026-08-03T00:00:00Z", to: "2026-08-04T00:00:00Z" },
 			now: NOW,
 			...overrides,

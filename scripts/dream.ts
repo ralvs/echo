@@ -196,6 +196,11 @@ async function main() {
 	if (result.truncated) {
 		console.log("⚠ Run truncated early (budget cap hit) — proposals below are partial.");
 	}
+	if (result.duplicatesRejected > 0) {
+		console.log(
+			`Duplicate-merge gate rejected ${result.duplicatesRejected} candidate pair(s) (not the same fact, or unconfirmed).`,
+		);
+	}
 
 	if (!result.proposals.length) {
 		console.log("\nNo proposals.");

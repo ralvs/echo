@@ -657,7 +657,12 @@ For each turn that reveals something worth remembering, updating, or retiring, e
 
 Skip turns that don't warrant a change. Return ONLY valid JSON: {"proposals": [...]}. Empty array if nothing to propose.`,
 		prompt: itemsText,
-		maxOutputTokens: 2048,
+		// 4096, paired with dream.ts's CLASSIFY_BATCH_SIZE (kept small enough that
+		// a full batch's worth of proposals comfortably fits) — a real run at
+		// 2048 truncated mid-string on larger batches (SyntaxError: Unterminated
+		// string), which the schema parse fails closed on, but silently wastes
+		// the whole batch's proposals. Don't tune one without the other.
+		maxOutputTokens: 4096,
 		jsonObject: true,
 	};
 
@@ -679,5 +684,96 @@ Skip turns that don't warrant a change. Return ONLY valid JSON: {"proposals": [.
 	} catch (err) {
 		console.error("Dream classification failed:", err);
 		return { proposals: [], usage };
+	}
+}
+
+/** One candidate pair from findDuplicates, handed to confirmDuplicateMerges
+ * for an LLM verdict before it may become a merge proposal. `pair_id` is
+ * caller-assigned (e.g. "thought_a|thought_b") and echoed back verbatim so
+ * the caller can re-associate a verdict with its pair without trusting the
+ * model to preserve target ids. */
+export type DuplicateCandidate = { pair_id: string; content_a: string; content_b: string };
+
+export type DuplicateVerdict = {
+	pair_id: string;
+	same_fact: boolean;
+	merged_content: string; // "" when same_fact is false
+	reason: string;
+};
+
+const DuplicateVerdictSchema = z.object({
+	pair_id: z.string(),
+	same_fact: z.boolean(),
+	merged_content: z.string().default(""),
+	reason: z.string().default(""),
+});
+
+const ConfirmDuplicateMergesSchema = z.object({
+	verdicts: z.array(DuplicateVerdictSchema).default([]),
+});
+
+export type ConfirmDuplicateMergesResult = {
+	verdicts: DuplicateVerdict[];
+	usage: ModelUsage;
+};
+
+/**
+ * findDuplicates (see lint.ts) is a lint heuristic for human eyeballing —
+ * its own output says "delete one or merge" — not a merge instruction. Two
+ * thoughts sitting at 0.95+ cosine similarity can still describe entirely
+ * different entities/events (e.g. AC service records for different rooms,
+ * on different dates, at different costs) when they share sentence
+ * structure. confirmDuplicateMerges is the gate between "candidate pair"
+ * and "actionable merge proposal": it asks the model to judge same-fact-ness
+ * explicitly, and fails closed like proposeMemoryChanges/relevanceGate — any
+ * transport error, schema mismatch, or missing verdict must be treated as
+ * "not a duplicate" rather than silently letting a merge through.
+ */
+export async function confirmDuplicateMerges(
+	ai: Ai,
+	candidates: DuplicateCandidate[],
+): Promise<ConfirmDuplicateMergesResult> {
+	if (!candidates.length) return { verdicts: [], usage: NO_USAGE };
+
+	const itemsText = candidates
+		.map((c, i) => `[${i + 1}] pair_id: ${c.pair_id}\nA: ${c.content_a}\nB: ${c.content_b}`)
+		.join("\n\n");
+
+	const req = {
+		system: `You review candidate duplicate pairs flagged by an embedding-similarity heuristic in a personal knowledge base, and decide whether each pair is actually the same fact and safe to merge. The heuristic only measures textual similarity, so it frequently flags pairs that are NOT duplicates — you are the safety check before anything gets merged and one of the two records gets destroyed.
+
+Two thoughts are the same fact ONLY if they record the same entity/event and differ merely in phrasing, level of detail, or recency (e.g. one is a shorter/older restatement of the other).
+
+They are NOT the same fact when they describe different subjects, instances, locations, units, people, dates, or amounts — even when the wording is nearly identical. Worked negative example: "AC cleaning service — Living room unit, last cleaned April 14, 2026, cost R$130" and "AC cleaning service — Office unit, last cleaned April 2, 2026, cost R$150" share sentence structure and score high on cosine similarity, but they are two different AC units with different dates and costs — same_fact must be false for a pair like this.
+
+When uncertain, answer same_fact: false. Uncertainty must never produce a merge — a false "not a duplicate" costs nothing (the pair just isn't merged), but a false "same fact" silently destroys one of the two records.
+
+For each pair, return:
+- "pair_id": copied verbatim from the input
+- "same_fact": true only if the two thoughts are unambiguously the same entity/event
+- "merged_content": when same_fact is true, the single memory that should replace both — it must preserve every distinct detail present in either A or B. "" when same_fact is false.
+- "reason": one sentence explaining the verdict
+
+Return ONLY valid JSON: {"verdicts": [...]}. One verdict per input pair.`,
+		prompt: itemsText,
+		maxOutputTokens: 2048,
+		jsonObject: true,
+	};
+
+	// Same hoisting rationale as proposeMemoryChanges: usage must reach the
+	// caller even on a parse failure so budget tracking stays accurate.
+	let usage: ModelUsage = NO_USAGE;
+	try {
+		const result = ai.generateWithUsage
+			? await ai.generateWithUsage(req)
+			: { text: await ai.generate(req), usage: NO_USAGE };
+		usage = result.usage;
+		const clean = result.text.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+		const parsed = ConfirmDuplicateMergesSchema.safeParse(JSON.parse(clean));
+		if (!parsed.success) return { verdicts: [], usage };
+		return { verdicts: parsed.data.verdicts, usage };
+	} catch (err) {
+		console.error("Duplicate merge confirmation failed:", err);
+		return { verdicts: [], usage };
 	}
 }

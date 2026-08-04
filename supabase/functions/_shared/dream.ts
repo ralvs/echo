@@ -15,10 +15,16 @@
  * correction-shaped turns reach the Haiku classifier).
  */
 
-import { type DreamClassifyItem, proposeMemoryChanges, type RawDreamProposal } from "./ai.ts";
+import {
+	confirmDuplicateMerges,
+	type DreamClassifyItem,
+	type DuplicateCandidate,
+	proposeMemoryChanges,
+	type RawDreamProposal,
+} from "./ai.ts";
 import { captureThought } from "./capture.ts";
 import type { EchoDeps } from "./deps.ts";
-import { type LintCheck, type LintReport, lintThoughts } from "./lint.ts";
+import { type DuplicatePair, type LintCheck, type LintReport, lintThoughts } from "./lint.ts";
 import type { ModelUsage } from "./model.ts";
 import { estimateUsd } from "./relevance-gate.ts";
 import { searchThoughts } from "./search.ts";
@@ -82,6 +88,12 @@ export type DreamResult = {
 	 * session_id/turn_index didn't resolve to a turn in the batch — see
 	 * classifyTurns. Never stapled to a wrong turn as a fallback. */
 	dropped: number;
+	/** Count of findDuplicates candidate pairs that confirmDuplicateMerges did
+	 * NOT confirm as the same fact (explicit same_fact: false, a parse/schema
+	 * failure, or a missing verdict) — surfaced so the run log shows the gate
+	 * rejecting false-positive merges, e.g. near-identical-looking records
+	 * that are actually distinct entities. */
+	duplicatesRejected: number;
 	/** Threaded through from DreamInput so writeDreamReport doesn't need a
 	 * fourth parameter to record the scan window in metadata.dream. */
 	window: { from: string; to: string };
@@ -120,7 +132,10 @@ export type ApplyOutcome = {
 const DEFAULT_MAX_TURNS = 400;
 const DEFAULT_MAX_PROPOSALS = 12;
 const DEFAULT_CHECKS: LintCheck[] = ["stale", "duplicates"];
-const CLASSIFY_BATCH_SIZE = 8;
+// Paired with proposeMemoryChanges' maxOutputTokens (ai.ts): halved from 8 so
+// a full batch's worth of proposals comfortably fits in 4096 output tokens
+// without truncating mid-string. Don't tune one without the other.
+const CLASSIFY_BATCH_SIZE = 4;
 const GROUNDING_LIMIT = 3;
 const REPORT_TTL_DAYS = 14;
 const HEALTH_STALE_MS = 48 * 60 * 60 * 1000;
@@ -282,41 +297,23 @@ async function classifyTurns(
 }
 
 /** Maps lintThoughts findings onto the same proposal shape the classifier
- * produces: duplicates → merge, stale → expire, contradictions → supersede.
- * Lint findings originate from the existing corpus, not a transcript, so
- * their "evidence" is the corpus content itself rather than a session quote. */
+ * produces: stale → expire, contradictions → supersede. Lint findings
+ * originate from the existing corpus, not a transcript, so their "evidence"
+ * is the corpus content itself rather than a session quote.
+ *
+ * Duplicates are deliberately NOT handled here. findDuplicates is a lint
+ * heuristic for human eyeballing (its own MCP output says "delete one or
+ * merge") — candidate generation, not a merge instruction. Two thoughts can
+ * sit at 0.95+ cosine similarity while describing entirely different
+ * entities/events (e.g. AC service records for different rooms), so turning
+ * a duplicate pair straight into a pre-filled merge proposal risks silent
+ * data loss. See confirmDuplicateProposals, which gates duplicate pairs
+ * behind an LLM same-fact verdict before they become actionable. */
 export function lintFindingsToProposals(
 	report: LintReport,
 	now: Date = new Date(),
 ): DreamProposal[] {
 	const drafts: DraftProposal[] = [];
-
-	for (const pair of report.duplicates?.pairs ?? []) {
-		const a = pair.content_a.trim();
-		const b = pair.content_b.trim();
-		const targetIds = [pair.thought_a, pair.thought_b];
-		// proposed_content must be the resulting memory, never a directive
-		// sentence — approving this gets captured/written verbatim as the
-		// merged thought's content. Use the more complete (longer) of the two.
-		const content = a.length >= b.length ? a : b;
-		drafts.push({
-			category: "duplicate",
-			action: "merge",
-			target_ids: targetIds,
-			proposed_content: content,
-			evidence: {
-				quote: `${a} / ${b}`,
-				session_id: "lint",
-				turn_index: -1,
-				transcript_path: "",
-				at: now.toISOString(),
-			},
-			confidence: pair.similarity,
-			rationale: `Merge near-duplicate thoughts: "${a}" / "${b}" (near-duplicate embedding match, cosine ${pair.similarity.toFixed(2)}).`,
-			fingerprint: computeFingerprint("duplicate", targetIds, content),
-			status: "pending",
-		});
-	}
 
 	for (const fact of report.stale ?? []) {
 		const targetIds = [fact.id];
@@ -383,6 +380,75 @@ function finalizeProposals(drafts: DraftProposal[], now: Date): DreamProposal[] 
 	});
 }
 
+/** pair_id encoding for confirmDuplicateMerges candidates — stable and
+ * reversible so a verdict can be re-associated with its originating pair
+ * without trusting the model to echo target ids back correctly. */
+function pairId(a: string, b: string): string {
+	return `${a}|${b}`;
+}
+
+/**
+ * Gates findDuplicates candidate pairs behind an LLM same-fact verdict
+ * before any of them may become an actionable merge proposal — see the note
+ * on lintFindingsToProposals for why this can't be a mechanical mapping.
+ * Async (unlike lintFindingsToProposals), so it lives as its own step in
+ * dream() rather than folded into the pure mapper. Fails closed end to end:
+ * confirmDuplicateMerges itself never throws, and any pair without an
+ * affirmative same_fact: true verdict (rejected, unparseable, or simply
+ * missing from the response) is dropped, not merged.
+ */
+async function confirmDuplicateProposals(
+	deps: EchoDeps,
+	pairs: DuplicatePair[],
+	now: Date,
+	onUsage: DreamInput["onUsage"],
+): Promise<{ drafts: DraftProposal[]; usage: ModelUsage; duplicatesRejected: number }> {
+	if (!pairs.length)
+		return { drafts: [], usage: { inputTokens: 0, outputTokens: 0 }, duplicatesRejected: 0 };
+
+	const candidates: DuplicateCandidate[] = pairs.map((pair) => ({
+		pair_id: pairId(pair.thought_a, pair.thought_b),
+		content_a: pair.content_a.trim(),
+		content_b: pair.content_b.trim(),
+	}));
+
+	const { verdicts, usage } = await confirmDuplicateMerges(deps.ai, candidates);
+	onUsage?.(usage);
+
+	const byPairId = new Map(verdicts.map((v) => [v.pair_id, v]));
+	const drafts: DraftProposal[] = [];
+	let duplicatesRejected = 0;
+
+	for (const pair of pairs) {
+		const verdict = byPairId.get(pairId(pair.thought_a, pair.thought_b));
+		if (!verdict || !verdict.same_fact || !verdict.merged_content.trim()) {
+			duplicatesRejected++;
+			continue;
+		}
+		const targetIds = [pair.thought_a, pair.thought_b];
+		const content = verdict.merged_content.trim();
+		drafts.push({
+			category: "duplicate",
+			action: "merge",
+			target_ids: targetIds,
+			proposed_content: content,
+			evidence: {
+				quote: `${pair.content_a.trim()} / ${pair.content_b.trim()}`,
+				session_id: "lint",
+				turn_index: -1,
+				transcript_path: "",
+				at: now.toISOString(),
+			},
+			confidence: pair.similarity,
+			rationale: verdict.reason || "Confirmed same fact by duplicate-merge review.",
+			fingerprint: computeFingerprint("duplicate", targetIds, content),
+			status: "pending",
+		});
+	}
+
+	return { drafts, usage, duplicatesRejected };
+}
+
 /**
  * Reads the day's transcript turns and the existing corpus, and returns a
  * ranked, capped list of proposed memory changes. Never writes: no capture,
@@ -419,7 +485,19 @@ export async function dream(deps: EchoDeps, input: DreamInput): Promise<DreamRes
 		({ n: _n, pid: _pid, ...rest }) => rest,
 	);
 
-	const combined = [...classifyDrafts, ...lintDrafts].filter((d) => !suppress.has(d.fingerprint));
+	const {
+		drafts: duplicateDrafts,
+		usage: duplicateUsage,
+		duplicatesRejected,
+	} = await confirmDuplicateProposals(deps, lintReport.duplicates?.pairs ?? [], now, input.onUsage);
+	const totalUsage: ModelUsage = {
+		inputTokens: usage.inputTokens + duplicateUsage.inputTokens,
+		outputTokens: usage.outputTokens + duplicateUsage.outputTokens,
+	};
+
+	const combined = [...classifyDrafts, ...lintDrafts, ...duplicateDrafts].filter(
+		(d) => !suppress.has(d.fingerprint),
+	);
 
 	const byKey = new Map<string, DraftProposal>();
 	for (const d of combined) {
@@ -445,10 +523,11 @@ export async function dream(deps: EchoDeps, input: DreamInput): Promise<DreamRes
 	return {
 		proposals,
 		scanned,
-		usage,
+		usage: totalUsage,
 		health,
 		truncated,
 		dropped,
+		duplicatesRejected,
 		window: input.window,
 		now,
 	};
