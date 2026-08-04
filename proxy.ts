@@ -63,8 +63,22 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
 	matcher: [
-		// Everything except /login, Next internals, and static assets. /api is
-		// deliberately INCLUDED so token refresh happens here, serially.
-		"/((?!_next/static|_next/image|favicon.ico|login|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+		// Everything except /login, the OAuth surface, Next internals, and
+		// static assets. /api is otherwise deliberately INCLUDED so token
+		// refresh happens here, serially.
+		//
+		// The OAuth exclusions are load-bearing, and all three fail *silently*
+		// if dropped — this matcher is the "matcher drift" hazard ADR-0020
+		// names, so re-check them when touching this line:
+		//   .well-known    discovery is read before the client has any token;
+		//                  redirecting it to /login returns HTML where a
+		//                  client demands JSON, and only Claude (which follows
+		//                  the WWW-Authenticate hint instead) keeps working.
+		//   oauth/consent  the user is by definition not signed in when they
+		//                  arrive — the page runs its own login — so a
+		//                  redirect to /login strands the whole flow.
+		//   api/mcp        bearer-authenticated, never cookie-authenticated;
+		//                  it must not participate in dashboard sessions.
+		"/((?!_next/static|_next/image|favicon.ico|login|\\.well-known|oauth/consent|api/mcp|api/oauth|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
 	],
 };
