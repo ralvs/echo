@@ -17,7 +17,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { ingestTurn } from "@/scripts/lib/ingest";
+import { flushBackground, ingestTurn } from "@/scripts/lib/ingest";
 import { pairTurns, parseTranscript } from "@/scripts/lib/transcript-prefilter";
 
 const PROJECTS_ROOT = join(homedir(), ".claude", "projects");
@@ -145,6 +145,8 @@ async function main() {
 	console.log(
 		`[echo-catchup] done — captured: ${totalCaptured}, skipped: ${totalSkipped}, errors: ${totalErrors}`,
 	);
+
+	await flushBackground();
 }
 
 main().catch((err) => {

@@ -21,7 +21,7 @@ import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CostTracker } from "@/scripts/lib/cost-tracker";
-import { ingestTurn } from "@/scripts/lib/ingest";
+import { flushBackground, ingestTurn } from "@/scripts/lib/ingest";
 import {
 	emptyState,
 	lastTurnFor,
@@ -280,6 +280,8 @@ async function runBatch(state: MineState, args: Args): Promise<void> {
 		`\nDone. gated ${snap.gateCalls}, captured ${snap.captures}, spent $${snap.usd.toFixed(2)}, stop reason: ${stoppedReason}`,
 	);
 	console.log(`Progress: ${progressFilePath()}`);
+
+	await flushBackground();
 }
 
 async function runDryRun(args: Args): Promise<void> {

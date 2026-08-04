@@ -11,7 +11,7 @@
  */
 
 import { basename } from "node:path";
-import { ingestTurn } from "@/scripts/lib/ingest";
+import { flushBackground, ingestTurn } from "@/scripts/lib/ingest";
 import { pairTurns, parseTranscript } from "@/scripts/lib/transcript-prefilter";
 
 type StopHookPayload = {
@@ -89,6 +89,8 @@ async function main() {
 			console.error(`[echo-stop-hook] capture failed: ${result.reason}`);
 			break;
 	}
+
+	await flushBackground();
 }
 
 main().catch((err) => {

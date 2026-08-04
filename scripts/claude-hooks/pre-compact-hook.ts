@@ -13,7 +13,7 @@
 
 import { basename } from "node:path";
 import { generateText } from "ai";
-import { ingestRaw } from "@/scripts/lib/ingest";
+import { flushBackground, ingestRaw } from "@/scripts/lib/ingest";
 import { pairTurns, parseTranscript } from "@/scripts/lib/transcript-prefilter";
 
 type PreCompactPayload = {
@@ -129,6 +129,8 @@ async function main() {
 			console.error(`[echo-precompact-hook] capture failed: ${result.reason}`);
 			break;
 	}
+
+	await flushBackground();
 }
 
 main().catch((err) => {

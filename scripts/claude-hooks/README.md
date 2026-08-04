@@ -2,14 +2,14 @@
 
 Two hooks turn Echo into a passive memory layer for Claude Code:
 
-- **`stop-hook.ts`** — runs after every assistant turn. Reads the last user→assistant exchange, asks a Haiku relevance gate whether it's worth saving, and POSTs to Echo if yes. Idempotent via `source_id = <session>:<turnIndex>`.
+- **`stop-hook.ts`** — runs after every assistant turn. Reads the last user→assistant exchange, asks a Haiku relevance gate whether it's worth saving, and captures it via the shared capture pipeline (a direct, service-role call — no HTTP hop) if yes. Idempotent via `source_id = <session>:<turnIndex>`.
 - **`pre-compact-hook.ts`** — runs before context compression. Summarizes the last ~12 exchanges into a bookmark thought (`memory_type: "episodic"`, 30-day expiry) so mid-flight context survives compaction.
 
 Both hooks **fail silently** — any error logs to stderr and exits 0 so they never block your session.
 
 ## Why hooks must `cd` to the echo project root
 
-Both hooks call the Vercel AI Gateway, which requires `AI_GATEWAY_API_KEY`. That key lives in `.env.local` in this repo. Bun loads `.env.local` from the **current working directory** — which is the CWD of the Claude Code session, not the script directory. Sessions in any other project would run without the key and fail silently.
+Both hooks call the Vercel AI Gateway (`AI_GATEWAY_API_KEY`) and the shared capture pipeline directly against Supabase with a service-role client (`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`). Those keys live in `.env.local` in this repo. Bun loads `.env.local` from the **current working directory** — which is the CWD of the Claude Code session, not the script directory. Sessions in any other project would run without the keys and fail silently.
 
 The fix: prefix every hook command with `cd /path/to/echo &&` so Bun always loads the right `.env.local`.
 
@@ -49,7 +49,7 @@ Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). Note the 
           {
             "type": "command",
             "command": "cd /Volumes/stuff/renan/echo && bun run scripts/claude-hooks/stop-hook.ts",
-            "timeout": 30
+            "timeout": 60
           }
         ]
       }
@@ -61,7 +61,7 @@ Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). Note the 
           {
             "type": "command",
             "command": "cd /Volumes/stuff/renan/echo && bun run scripts/claude-hooks/pre-compact-hook.ts",
-            "timeout": 60
+            "timeout": 120
           }
         ]
       }
@@ -72,7 +72,9 @@ Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). Note the 
 
 ## Required env
 
-`AI_GATEWAY_API_KEY` and `ECHO_API_URL` are loaded automatically from `.env.local` in the echo project root when hooks use the `cd /path/to/echo &&` prefix. No shell profile changes needed.
+`AI_GATEWAY_API_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` are loaded automatically from `.env.local` in the echo project root when hooks use the `cd /path/to/echo &&` prefix. No shell profile changes needed.
+
+These timeouts (`60`s Stop, `120`s PreCompact) cover the whole in-process pipeline now — save, relation detection, plus the compounding work (topic pages, entity linking, person backfill) that used to run after the response under Next's `after()` and now runs inline before the hook exits.
 
 ## What the gate captures (and skips)
 

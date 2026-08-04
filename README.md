@@ -266,13 +266,10 @@ Both hooks instruct Haiku to translate any non-English content to English before
 
 ### Install
 
-Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). Update the `command` paths to match your local clone.
+Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). Update `/path/to/echo` to match your local clone. The `cd /path/to/echo &&` prefix is required — it's what makes Bun load `.env.local` from the echo project root instead of the calling session's CWD.
 
 ```jsonc
 {
-  "env": {
-    "ECHO_API_URL": "http://localhost:3000"
-  },
   "hooks": {
     "Stop": [
       {
@@ -280,8 +277,8 @@ Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). Update th
         "hooks": [
           {
             "type": "command",
-            "command": "bun run /path/to/echo/scripts/claude-hooks/stop-hook.ts",
-            "timeout": 30
+            "command": "cd /path/to/echo && bun run scripts/claude-hooks/stop-hook.ts",
+            "timeout": 60
           }
         ]
       }
@@ -292,8 +289,8 @@ Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). Update th
         "hooks": [
           {
             "type": "command",
-            "command": "bun run /path/to/echo/scripts/claude-hooks/pre-compact-hook.ts",
-            "timeout": 60
+            "command": "cd /path/to/echo && bun run scripts/claude-hooks/pre-compact-hook.ts",
+            "timeout": 120
           }
         ]
       }
@@ -302,12 +299,15 @@ Add to `~/.claude/settings.json` (or `~/.claude/settings.local.json`). Update th
 }
 ```
 
-**Required env** (set in your shell profile or in the `"env"` block above):
+These timeouts cover the whole in-process pipeline now — save, relation detection, plus the compounding work (topic pages, entity linking, person backfill) that used to run after the response under Next's `after()` and now runs inline before the hook exits.
+
+**Required env** (set in your shell profile, or in `.env.local` at the echo project root — loaded automatically via the `cd` prefix above):
 
 | Var | Description |
 |---|---|
 | `AI_GATEWAY_API_KEY` | Same key Echo uses for metadata extraction and embeddings |
-| `ECHO_API_URL` | URL where the Echo server is running (default: `http://localhost:3000`) |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service-role key — hooks call the shared capture pipeline directly against Supabase |
 
 Both hooks fail silently — any error logs to stderr and exits 0 so they never block a session.
 
