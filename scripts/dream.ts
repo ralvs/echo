@@ -2,16 +2,19 @@
 /**
  * The dream CLI — thin Bun adapter over the shared dream() workflow
  * (supabase/functions/_shared/dream.ts). Reads the day's Claude Code
- * transcripts, grounds them against the corpus, and prints a numbered list
- * of proposed memory changes with transcript quotes as evidence.
+ * transcripts, grounds them against the corpus, prints a numbered list of
+ * proposed memory changes with transcript quotes as evidence, and — unless
+ * --dry-run is passed — persists the report via writeDreamReport.
  *
  *   bun run scripts/dream.ts [--hours 30] [--dry-run] [--max-usd 0.50]
  *                            [--max-proposals 12] [--checks stale,duplicates]
  *                            [--force] [--file <path>]
  *
- * Phase 3: --dry-run is the only supported mode. The write path
- * (writeDreamReport) is intentionally unreachable from this CLI — approving
- * and applying proposals lands in a later phase.
+ * This is always the *manual* run: source_id is `dream:<date>T<HHmm>`, so an
+ * ad-hoc run here never collides with the nightly job's `dream:<date>`
+ * report (scripts/nightly.ts writes that one directly, not through this
+ * CLI). Writing is idempotent on source_id — a second run in the same
+ * minute reports "already exists" rather than silently doing nothing twice.
  *
  * Turns are sourced from scanWindow() (scripts/lib/transcript-scan.ts), the
  * same scope-guarded, prefiltered seam catch-up.ts and nightly.ts use — or
@@ -22,18 +25,24 @@ import { readFileSync } from "node:fs";
 import {
 	type DreamInput,
 	type DreamProposal,
+	type DreamResult,
 	type DreamTurn,
 	dream,
 	listRecentFingerprints,
+	writeDreamReport,
 } from "@shared/dream.ts";
 import type { LintCheck } from "@shared/lint.ts";
-import type { ModelUsage } from "@shared/model.ts";
+import type { Ai, ModelUsage } from "@shared/model.ts";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { nodeAi } from "@/lib/model";
 import { createServiceClient } from "@/lib/supabase";
 import { CostTracker } from "@/scripts/lib/cost-tracker";
 import { scanWindow } from "@/scripts/lib/transcript-scan.ts";
 
 const VALID_CHECKS: LintCheck[] = ["contradictions", "orphans", "stale", "duplicates"];
+// Rejections suppress for 30 days — long enough that a proposal the Owner
+// already turned down doesn't keep resurfacing on every subsequent run.
+const FINGERPRINT_SUPPRESSION_DAYS = 30;
 
 type Args = {
 	hours: number;
@@ -90,12 +99,14 @@ Usage:
 
 Flags:
   --hours <N>            Scan transcripts from the last N hours (default 30).
-  --dry-run              Only supported mode in this phase. writeDreamReport is never called.
+  --dry-run              Print proposals without writing a dream report (default: write).
   --max-usd <N>          Cap classifier spend per run (default 0.50).
   --max-proposals <N>    Cap the number of proposals returned (default 12).
   --checks <list>        Comma-separated lint checks (default stale,duplicates).
                           Valid: ${VALID_CHECKS.join(", ")}
-  --force                Skip fingerprint suppression (re-propose previously rejected items).
+  --force                Skip fingerprint suppression (re-propose previously rejected items),
+                          and if a report already exists for this run, write a new revision
+                          under a ":r<n>" suffixed source_id instead of reporting a duplicate.
   --file <path>          Read turns from a JSON file (array of DreamTurn) instead of scanning transcripts.
   -h, --help              Show this help.
 `);
@@ -139,15 +150,64 @@ function formatProposal(p: DreamProposal): string {
 	return lines.join("\n");
 }
 
+/** `dream:<YYYY-MM-DD>T<HHmm>` — this CLI is always a manual/ad-hoc run, so
+ * it embeds minutes to stay distinct from the nightly job's `dream:<date>`
+ * report (see module docstring). */
+function manualSourceId(now: Date): string {
+	const date = now.toISOString().slice(0, 10);
+	const hhmm = now.toISOString().slice(11, 16).replace(":", "");
+	return `dream:${date}T${hhmm}`;
+}
+
+async function sourceIdExists(db: SupabaseClient, sourceId: string): Promise<boolean> {
+	const { data } = await db.from("thoughts").select("id").eq("source_id", sourceId).limit(1);
+	return ((data ?? []) as unknown[]).length > 0;
+}
+
+/** Resolves the source_id to write under. Without --force this is just the
+ * plain manual id (a collision surfaces as writeDreamReport's normal
+ * `duplicate: true`). With --force, a colliding id gets a ":r<n>" suffix so
+ * a deliberate re-run of the same run actually writes a new report instead
+ * of being swallowed as a duplicate. */
+async function resolveSourceId(db: SupabaseClient, now: Date, force: boolean): Promise<string> {
+	const base = manualSourceId(now);
+	if (!force) return base;
+
+	let candidate = base;
+	let n = 2;
+	while (await sourceIdExists(db, candidate)) {
+		candidate = `${base}:r${n}`;
+		n++;
+	}
+	return candidate;
+}
+
+export type RunOutcome = {
+	result: DreamResult;
+	write: { sourceId: string; id: string; duplicate: boolean } | null;
+};
+
+/**
+ * The testable core: runs dream() against the given deps/input, then either
+ * skips the write (dry run) or resolves a source_id and persists via
+ * writeDreamReport. Kept separate from main() so tests can inject a fake db
+ * without going through argv parsing or the real Supabase client.
+ */
+export async function runDream(
+	deps: { db: SupabaseClient; ai: Ai; ownerName?: string | null },
+	input: DreamInput,
+	opts: { dryRun: boolean; force: boolean },
+): Promise<RunOutcome> {
+	const result = await dream(deps, input);
+	if (opts.dryRun) return { result, write: null };
+
+	const sourceId = await resolveSourceId(deps.db, input.now ?? new Date(), opts.force);
+	const { id, duplicate } = await writeDreamReport(deps, result, sourceId);
+	return { result, write: { sourceId, id, duplicate } };
+}
+
 async function main() {
 	const args = parseArgs(process.argv.slice(2));
-
-	if (!args.dryRun) {
-		console.error(
-			"Error: this phase only supports --dry-run. Applying proposals lands in a later phase.",
-		);
-		process.exit(2);
-	}
 
 	const turns = args.file ? loadTurnsFromFile(args.file) : loadTurnsFromTranscripts(args.hours);
 	console.log(`Loaded ${turns.length} candidate turns.`);
@@ -162,11 +222,11 @@ async function main() {
 	};
 
 	// --force skips fingerprint suppression: previously-rejected proposals
-	// (recorded in dream reports written in the last 14 days) are re-proposed
+	// (recorded in dream reports written in the last 30 days) are re-proposed
 	// instead of silently dropped.
 	const suppressFingerprints = args.force
 		? new Set<string>()
-		: await listRecentFingerprints(db, 14);
+		: await listRecentFingerprints(db, FINGERPRINT_SUPPRESSION_DAYS);
 
 	const now = new Date();
 	const input: DreamInput = {
@@ -182,7 +242,7 @@ async function main() {
 		onUsage,
 	};
 
-	const result = await dream(deps, input);
+	const { result, write } = await runDream(deps, input, { dryRun: args.dryRun, force: args.force });
 
 	console.log(
 		`\nScanned ${result.scanned.turns} turns across ${result.scanned.sessions} sessions. ` +
@@ -204,22 +264,33 @@ async function main() {
 
 	if (!result.proposals.length) {
 		console.log("\nNo proposals.");
-		return;
+	} else {
+		console.log(`\n${result.proposals.length} proposal(s):\n`);
+		for (const p of result.proposals) {
+			console.log(formatProposal(p));
+			console.log("");
+		}
 	}
 
-	console.log(`\n${result.proposals.length} proposal(s):\n`);
-	for (const p of result.proposals) {
-		console.log(formatProposal(p));
-		console.log("");
+	if (!write) {
+		console.log("Dry run — no dream report was written.");
+	} else if (write.duplicate) {
+		console.log(
+			`Dream report already exists for ${write.sourceId} (id ${write.id}) — not written again. ` +
+				"Pass --force to write a new revision.",
+		);
+	} else {
+		console.log(`Wrote dream report ${write.id} (source_id ${write.sourceId}).`);
 	}
-
-	console.log(
-		"Dry run only — no dream report was written. Re-run without this phase's limits once",
-	);
-	console.log("apply/reject support lands to persist and act on these proposals.");
 }
 
-main().catch((err) => {
-	console.error(`Dream failed: ${(err as Error).stack ?? (err as Error).message}`);
-	process.exit(1);
-});
+// Guarded so importing runDream/resolveSourceId from a test (run under
+// Vitest/Node, where import.meta.main is unset) never triggers a real run
+// against createServiceClient(). True only when Bun loads this file as the
+// process entrypoint (`bun run scripts/dream.ts`).
+if (import.meta.main) {
+	main().catch((err) => {
+		console.error(`Dream failed: ${(err as Error).stack ?? (err as Error).message}`);
+		process.exit(1);
+	});
+}

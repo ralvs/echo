@@ -2,15 +2,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 import {
 	applyProposals,
+	applySafeFixes,
 	type DreamInput,
 	type DreamProposal,
 	type DreamReportMetadata,
 	type DreamResult,
 	dream,
+	findSafeFixes,
 	getDreamReport,
 	lintFindingsToProposals,
 	listRecentFingerprints,
 	rejectProposals,
+	type SafeFix,
 	writeDreamReport,
 } from "./dream.ts";
 import type { LintReport } from "./lint.ts";
@@ -1151,5 +1154,304 @@ describe("rejectProposals and fingerprint suppression", () => {
 		// or a later genuine change to the same memory would go unreported.
 		expect(fingerprints.has("fp-rejected")).toBe(true);
 		expect(fingerprints.has("fp-applied")).toBe(false);
+	});
+});
+
+/**
+ * A dedicated fake for findSafeFixes/applySafeFixes: unlike createFakeDb
+ * (tuned for the `thoughts`-table-heavy proposal apply path), safe fixes
+ * cross topic_pages, entities, and thought_entities too, and need real
+ * filtering (`lt`, `or`, `order`, `limit`) rather than the shape-only stub
+ * createFakeDb's generic branch gives non-"thoughts" tables.
+ */
+function chain(rows: Row[]) {
+	const self = {
+		eq(col: string, val: unknown) {
+			return chain(rows.filter((r) => r[col] === val));
+		},
+		or(_expr: string) {
+			return chain(rows);
+		},
+		lt(col: string, val: unknown) {
+			return chain(rows.filter((r) => (r[col] as string) < (val as string)));
+		},
+		gte(col: string, val: unknown) {
+			return chain(rows.filter((r) => (r[col] as string) >= (val as string)));
+		},
+		order(col: string, opts?: { ascending?: boolean }) {
+			const sorted = [...rows].sort((a, b) => {
+				const av = a[col] as string;
+				const bv = b[col] as string;
+				const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+				return opts?.ascending === false ? -cmp : cmp;
+			});
+			return chain(sorted);
+		},
+		limit(n: number) {
+			return chain(rows.slice(0, n));
+		},
+		single: async () =>
+			rows.length
+				? { data: rows[0], error: null }
+				: { data: null, error: { message: "not found" } },
+		maybeSingle: async () => ({ data: rows[0] ?? null, error: null }),
+		// biome-ignore lint/suspicious/noThenProperty: supabase-js query builders are awaitable; the fake must be too
+		then(resolve: (v: { data: Row[]; error: null }) => void) {
+			resolve({ data: rows, error: null });
+		},
+	};
+	return self;
+}
+
+function createSafeFixDb(opts: { thoughts?: Row[]; topicPages?: Row[]; entities?: Row[] } = {}) {
+	const tables: Record<string, Row[]> = {
+		thoughts: [...(opts.thoughts ?? [])],
+		topic_pages: [...(opts.topicPages ?? [])],
+		entities: [...(opts.entities ?? [])],
+		thought_entities: [],
+		entity_pages: [],
+	};
+	const updated: { table: string; patch: Row }[] = [];
+	const deleted: { table: string }[] = [];
+	const upserts: { table: string; row: Row }[] = [];
+	const rpcCalls: { name: string; args: unknown }[] = [];
+
+	const db = {
+		from(table: string) {
+			return {
+				select: (_cols?: string) => chain(tables[table] ?? []),
+				update: (patch: Row) => ({
+					eq: (col: string, val: unknown) => {
+						updated.push({ table, patch });
+						for (const row of tables[table] ?? []) {
+							if (row[col] === val) Object.assign(row, patch);
+						}
+						// biome-ignore lint/suspicious/noThenProperty: awaitable, matches supabase-js
+						return { then: (resolve: (v: { error: null }) => void) => resolve({ error: null }) };
+					},
+				}),
+				upsert: (row: Row) => {
+					upserts.push({ table, row });
+					// biome-ignore lint/suspicious/noThenProperty: awaitable, matches supabase-js
+					return { then: (resolve: (v: { error: null }) => void) => resolve({ error: null }) };
+				},
+				delete: () => {
+					deleted.push({ table });
+					return { eq: async () => ({ error: null }) };
+				},
+			};
+		},
+		rpc: async (name: string, args: unknown) => {
+			rpcCalls.push({ name, args });
+			if (name === "upsert_entity") {
+				const a = args as { p_type: string; p_name: string };
+				return { data: `entity:${a.p_type}:${a.p_name}`, error: null };
+			}
+			return { data: null, error: null };
+		},
+	};
+
+	return {
+		db: db as unknown as SupabaseClient,
+		tables,
+		updated,
+		deleted,
+		upserts,
+		rpcCalls,
+	};
+}
+
+const safeFixAi = (): Ai => ({
+	async generate() {
+		return "{}";
+	},
+	async generateWithUsage() {
+		return { text: "{}", usage: { inputTokens: 0, outputTokens: 0 } };
+	},
+	async embed() {
+		return [0.4, 0.5, 0.6];
+	},
+});
+
+describe("findSafeFixes", () => {
+	it("selects only thoughts whose vector predates the ADR-0021 owner anchor", async () => {
+		const { db } = createSafeFixDb({
+			thoughts: [
+				{ id: "old-1", updated_at: "2026-07-01T00:00:00Z" },
+				{ id: "old-2", updated_at: "2026-07-11T23:59:59Z" },
+				{ id: "new-1", updated_at: "2026-07-12T00:00:00Z" },
+				{ id: "new-2", updated_at: "2026-08-01T00:00:00Z" },
+			],
+		});
+
+		const fixes = await findSafeFixes({ db, ai: safeFixAi() }, {});
+
+		expect(fixes).toEqual([
+			{ kind: "reembed", thoughtId: "old-1" },
+			{ kind: "reembed", thoughtId: "old-2" },
+		]);
+	});
+
+	it("caps the number of re-embeds per run", async () => {
+		const thoughts = Array.from({ length: 30 }, (_, i) => ({
+			id: `old-${i}`,
+			updated_at: `2026-06-${String((i % 28) + 1).padStart(2, "0")}T00:00:00Z`,
+		}));
+		const { db } = createSafeFixDb({ thoughts });
+
+		const fixes = await findSafeFixes({ db, ai: safeFixAi() }, { maxReembeds: 5 });
+
+		expect(fixes).toHaveLength(5);
+	});
+});
+
+describe("applySafeFixes", () => {
+	it("performs only the four declared kinds, never touching authored state or deleting", async () => {
+		const { db, updated, deleted } = createSafeFixDb({
+			thoughts: [
+				{
+					id: "t1",
+					content: "Renan uses Bun.",
+					metadata: { project: "Echo" },
+					category: "fact",
+					due_at: "2026-09-01T00:00:00Z",
+					priority: 3,
+					status: "open",
+					updated_at: "2026-07-01T00:00:00Z",
+				},
+			],
+			topicPages: [], // recompile_topic_page target absent -> skipped
+			entities: [], // recompile_entity_page target absent -> skipped
+		});
+
+		const fixes: SafeFix[] = [
+			{ kind: "reembed", thoughtId: "t1" },
+			{ kind: "link_entities", thoughtId: "t1" },
+			{ kind: "recompile_topic_page", slug: "missing-slug" },
+			{ kind: "recompile_entity_page", entityId: "missing-entity" },
+		];
+
+		const outcomes = await applySafeFixes({ db, ai: safeFixAi() }, fixes);
+
+		expect(outcomes).toHaveLength(4);
+		expect(outcomes.map((o) => o.fix.kind)).toEqual([
+			"reembed",
+			"link_entities",
+			"recompile_topic_page",
+			"recompile_entity_page",
+		]);
+
+		// Nothing was ever deleted.
+		expect(deleted).toHaveLength(0);
+
+		// Every write against `thoughts` only ever patches embedding/updated_at
+		// — never content, metadata, due_at, priority, or status.
+		const forbidden = ["content", "metadata", "due_at", "priority", "status"];
+		for (const u of updated.filter((u) => u.table === "thoughts")) {
+			for (const key of forbidden) {
+				expect(Object.keys(u.patch)).not.toContain(key);
+			}
+		}
+	});
+
+	it("reembed writes only the embedding (and updated_at), leaving content/metadata untouched", async () => {
+		const { db, tables, updated } = createSafeFixDb({
+			thoughts: [
+				{
+					id: "t1",
+					content: "Renan uses Bun.",
+					metadata: { project: "Echo" },
+					category: "fact",
+					updated_at: "2026-07-01T00:00:00Z",
+				},
+			],
+		});
+
+		const outcomes = await applySafeFixes({ db, ai: safeFixAi() }, [
+			{ kind: "reembed", thoughtId: "t1" },
+		]);
+
+		expect(outcomes[0].status).toBe("applied");
+		const patch = updated.find((u) => u.table === "thoughts")?.patch;
+		expect(patch && Object.keys(patch).sort()).toEqual(["embedding", "updated_at"]);
+		expect(tables.thoughts[0].content).toBe("Renan uses Bun.");
+		expect(tables.thoughts[0].metadata).toEqual({ project: "Echo" });
+	});
+
+	it("link_entities is additive — it upserts thought_entities, it never writes to thoughts", async () => {
+		const { db, upserts, rpcCalls, updated } = createSafeFixDb({
+			thoughts: [{ id: "t1", metadata: { project: "Echo" }, embedding: [0, 0, 0] }],
+		});
+
+		const outcomes = await applySafeFixes({ db, ai: safeFixAi() }, [
+			{ kind: "link_entities", thoughtId: "t1" },
+		]);
+
+		expect(outcomes[0].status).toBe("applied");
+		expect(rpcCalls.some((c) => c.name === "upsert_entity")).toBe(true);
+		expect(upserts.some((u) => u.table === "thought_entities")).toBe(true);
+		expect(updated.filter((u) => u.table === "thoughts")).toHaveLength(0);
+	});
+
+	it("skips a fix targeting a missing thought/page/entity instead of erroring", async () => {
+		const { db } = createSafeFixDb();
+
+		const outcomes = await applySafeFixes({ db, ai: safeFixAi() }, [
+			{ kind: "reembed", thoughtId: "missing" },
+			{ kind: "link_entities", thoughtId: "missing" },
+			{ kind: "recompile_topic_page", slug: "missing" },
+			{ kind: "recompile_entity_page", entityId: "missing" },
+		]);
+
+		expect(outcomes.every((o) => o.status === "skipped")).toBe(true);
+	});
+});
+
+describe("writeDreamReport auto_applied", () => {
+	it("records applySafeFixes results in metadata.dream.auto_applied", async () => {
+		const { db, inserted } = createFakeDb();
+		const ai = fakeAi();
+		const now = new Date("2026-08-04T03:00:00Z");
+		const result: DreamResult = {
+			proposals: [],
+			scanned: { turns: 0, sessions: 0 },
+			usage: { inputTokens: 0, outputTokens: 0 },
+			health: { newest_capture_at: null, capture_pipeline_stale: false },
+			truncated: false,
+			dropped: 0,
+			duplicatesRejected: 0,
+			window: { from: "2026-08-03T00:00:00Z", to: "2026-08-04T00:00:00Z" },
+			now,
+		};
+		const autoApplied = [
+			{ fix: { kind: "reembed" as const, thoughtId: "t1" }, status: "applied" as const },
+		];
+
+		await writeDreamReport({ db, ai }, result, "dream:2026-08-04", autoApplied);
+
+		const meta = inserted[0].metadata as { dream: DreamReportMetadata };
+		expect(meta.dream.auto_applied).toEqual(autoApplied);
+	});
+
+	it("defaults to an empty auto_applied when no fixes were passed", async () => {
+		const { db, inserted } = createFakeDb();
+		const ai = fakeAi();
+		const now = new Date("2026-08-04T03:00:00Z");
+		const result: DreamResult = {
+			proposals: [],
+			scanned: { turns: 0, sessions: 0 },
+			usage: { inputTokens: 0, outputTokens: 0 },
+			health: { newest_capture_at: null, capture_pipeline_stale: false },
+			truncated: false,
+			dropped: 0,
+			duplicatesRejected: 0,
+			window: { from: "2026-08-03T00:00:00Z", to: "2026-08-04T00:00:00Z" },
+			now,
+		};
+
+		await writeDreamReport({ db, ai }, result, "dream:2026-08-04");
+
+		const meta = inserted[0].metadata as { dream: DreamReportMetadata };
+		expect(meta.dream.auto_applied).toEqual([]);
 	});
 });

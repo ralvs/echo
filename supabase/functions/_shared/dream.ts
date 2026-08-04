@@ -16,6 +16,7 @@
  */
 
 import {
+	buildEmbeddingText,
 	confirmDuplicateMerges,
 	type DreamClassifyItem,
 	type DuplicateCandidate,
@@ -24,11 +25,14 @@ import {
 } from "./ai.ts";
 import { captureThought } from "./capture.ts";
 import type { EchoDeps } from "./deps.ts";
+import { extractEntityMentions, linkThoughtEntities } from "./entities.ts";
+import { recompileEntityPage } from "./entity-pages.ts";
 import { type DuplicatePair, type LintCheck, type LintReport, lintThoughts } from "./lint.ts";
 import type { ModelUsage } from "./model.ts";
 import { estimateUsd } from "./relevance-gate.ts";
 import { searchThoughts } from "./search.ts";
-import { getCurrentThought } from "./thoughts-store.ts";
+import { getCurrentThought, NON_BUNDLE_FILTER } from "./thoughts-store.ts";
+import { recompileTopicPage } from "./topic-pages.ts";
 import { updateThought } from "./update.ts";
 
 export type DreamAction = "create" | "update" | "supersede" | "merge" | "expire";
@@ -109,7 +113,10 @@ export type DreamReportMetadata = {
 	window: { from: string; to: string };
 	scanned: { turns: number; sessions: number };
 	cost_usd: number;
-	auto_applied: number[];
+	/** Safe fixes (see SafeFix/applySafeFixes) auto-applied by the nightly job
+	 * while writing this report — never a proposal number, since safe fixes
+	 * never go through the propose/approve/apply loop. */
+	auto_applied: AppliedFix[];
 	proposals: DreamProposal[];
 	health: { newest_capture_at: string | null; capture_pipeline_stale: boolean };
 };
@@ -126,6 +133,27 @@ export type ApplyOutcome = {
 	n: number;
 	status: "applied" | "rejected" | "skipped" | "error";
 	thoughtId?: string;
+	error?: string;
+};
+
+/**
+ * Maintenance chores the nightly job may apply on its own, with no Owner
+ * approval loop — unlike DreamProposal, which always waits for
+ * applyProposals/rejectProposals against an explicit list the Owner chose.
+ * Each variant names exactly one derived, regenerable artifact to
+ * recompute: an embedding vector, a compiled topic/entity page, or an
+ * additive entity link. None of these can carry authored state (content,
+ * due dates, priority, status) — see applySafeFixes.
+ */
+export type SafeFix =
+	| { kind: "reembed"; thoughtId: string }
+	| { kind: "recompile_topic_page"; slug: string }
+	| { kind: "recompile_entity_page"; entityId: string }
+	| { kind: "link_entities"; thoughtId: string };
+
+export type AppliedFix = {
+	fix: SafeFix;
+	status: "applied" | "skipped" | "error";
 	error?: string;
 };
 
@@ -543,6 +571,7 @@ export async function writeDreamReport(
 	deps: EchoDeps,
 	r: DreamResult,
 	sourceId: string,
+	autoApplied: AppliedFix[] = [],
 ): Promise<{ id: string; duplicate: boolean }> {
 	const { db, ai } = deps;
 
@@ -562,7 +591,7 @@ export async function writeDreamReport(
 		window: r.window,
 		scanned: r.scanned,
 		cost_usd: estimateUsd(r.usage.inputTokens, r.usage.outputTokens),
-		auto_applied: [],
+		auto_applied: autoApplied,
 		proposals: r.proposals,
 		health: r.health,
 	};
@@ -845,5 +874,141 @@ export async function rejectProposals(
 	}
 
 	await persistDreamMeta(deps, reportId, dreamMeta);
+	return outcomes;
+}
+
+/** Commit e63beee (2026-07-12) introduced the ADR-0021 owner-anchored embed
+ * text (buildEmbeddingText prepends "About <Owner>: " to content before
+ * embedding). Any thought last written before this cutoff still carries a
+ * pre-anchor vector and retrieves worse than a fresh capture. Deliberately
+ * NOT tracked via a metadata marker — metadata is off-limits for safe fixes
+ * (see applySafeFixes) — so updated_at both selects the candidates and,
+ * once applySafeFixes writes a fresh embedding (bumping updated_at), is what
+ * makes an already-processed row fall out of the next night's selection. */
+const OWNER_ANCHOR_CUTOFF = "2026-07-12T00:00:00Z";
+const DEFAULT_MAX_REEMBEDS = 25;
+
+/**
+ * Selects safe-fix candidates. Only re-embeds are found today — recompiling
+ * a specific topic/entity page or linking a specific thought's entities
+ * needs a target already in hand (the capture pipeline itself schedules
+ * those incrementally); this function's job is to find work nothing else
+ * would ever revisit on its own, which for now is exactly the pre-ADR-0021
+ * embedding backlog. Capped (default 25) to bound nightly embedding spend.
+ */
+export async function findSafeFixes(
+	deps: EchoDeps,
+	opts: { maxReembeds?: number } = {},
+): Promise<SafeFix[]> {
+	const maxReembeds = opts.maxReembeds ?? DEFAULT_MAX_REEMBEDS;
+	if (maxReembeds <= 0) return [];
+
+	const { data } = await deps.db
+		.from("thoughts")
+		.select("id")
+		.or(NON_BUNDLE_FILTER)
+		.lt("updated_at", OWNER_ANCHOR_CUTOFF)
+		.order("updated_at", { ascending: true })
+		.limit(maxReembeds);
+
+	return ((data ?? []) as { id: string }[]).map((row) => ({ kind: "reembed", thoughtId: row.id }));
+}
+
+/**
+ * Applies a batch of safe fixes — nightly maintenance the Owner never has to
+ * approve. A closed switch over exactly SafeFix's four kinds: structurally,
+ * this function cannot express any operation other than the four named here,
+ * so it can never become a side door around the propose/approve/apply loop
+ * DreamProposal enforces. The invariant every branch must hold: touch only
+ * derived, regenerable data (an embedding vector, a compiled page, an
+ * additive entity link) — NEVER content, metadata, due_at, priority, or
+ * status, and NEVER a delete. (recompileEntityPage's own below-threshold
+ * cleanup deletes a *page*, not a thought — out of scope for that rule.)
+ */
+export async function applySafeFixes(deps: EchoDeps, fixes: SafeFix[]): Promise<AppliedFix[]> {
+	const { db, ai, ownerName } = deps;
+	const outcomes: AppliedFix[] = [];
+
+	for (const fix of fixes) {
+		try {
+			switch (fix.kind) {
+				case "reembed": {
+					const { data: row } = await db
+						.from("thoughts")
+						.select("id, content, metadata, category")
+						.eq("id", fix.thoughtId)
+						.single();
+					if (!row) {
+						outcomes.push({ fix, status: "skipped", error: "thought not found" });
+						continue;
+					}
+					const thought = row as {
+						content: string;
+						metadata: Record<string, unknown> | null;
+						category: string | null;
+					};
+					const text = buildEmbeddingText(
+						thought.content,
+						thought.metadata ?? {},
+						thought.category,
+						ownerName ?? null,
+					);
+					const embedding = await ai.embed(text);
+					const { error } = await db
+						.from("thoughts")
+						.update({ embedding, updated_at: new Date().toISOString() })
+						.eq("id", fix.thoughtId);
+					if (error) throw new Error(error.message);
+					outcomes.push({ fix, status: "applied" });
+					break;
+				}
+				case "recompile_topic_page": {
+					const { data: page } = await db
+						.from("topic_pages")
+						.select("id")
+						.eq("slug", fix.slug)
+						.single();
+					if (!page) {
+						outcomes.push({ fix, status: "skipped", error: "topic page not found" });
+						continue;
+					}
+					await recompileTopicPage(deps, (page as { id: string }).id);
+					outcomes.push({ fix, status: "applied" });
+					break;
+				}
+				case "recompile_entity_page": {
+					const result = await recompileEntityPage(deps, fix.entityId);
+					if (!result) {
+						outcomes.push({
+							fix,
+							status: "skipped",
+							error: "entity not found or below the page threshold",
+						});
+						continue;
+					}
+					outcomes.push({ fix, status: "applied" });
+					break;
+				}
+				case "link_entities": {
+					const current = await getCurrentThought(db, fix.thoughtId);
+					if (!current) {
+						outcomes.push({ fix, status: "skipped", error: "thought not found" });
+						continue;
+					}
+					const mentions = extractEntityMentions(current.metadata ?? {});
+					if (!mentions.length) {
+						outcomes.push({ fix, status: "skipped", error: "no entity mentions in metadata" });
+						continue;
+					}
+					await linkThoughtEntities(db, fix.thoughtId, mentions);
+					outcomes.push({ fix, status: "applied" });
+					break;
+				}
+			}
+		} catch (err) {
+			outcomes.push({ fix, status: "error", error: (err as Error).message });
+		}
+	}
+
 	return outcomes;
 }
