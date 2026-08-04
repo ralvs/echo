@@ -12,14 +12,22 @@ than adding code or schema.
 | [`panning-for-gold`](panning-for-gold/SKILL.md) | Sift a brain dump into a ranked idea inventory and capture only the keepers. |
 | [`entity-brief`](entity-brief/SKILL.md) | Assemble a briefing on a person, project, organization, tool, or place from the entity graph. |
 | [`graph-tour`](graph-tour/SKILL.md) | Tour the shape of the whole graph — central concepts, clusters, and surprising connections — then reflect on what's worth exploring. |
+| [`dream`](dream/SKILL.md) | Review and act on the nightly dream workflow's proposed memory changes — apply, reject, or run it on demand. |
+| [`echo-capture`](echo-capture/SKILL.md) | Capture insights from the current conversation into Echo, via the catch-up script (terminal) or `capture_thought` (Desktop chat). |
 
 ## Installing
 
-Skills are discovered from `~/.claude/skills/`. Symlink the packs you want:
+Skills are discovered from `~/.claude/skills/` (Claude Code / Claude Desktop)
+and `~/.grok/skills/` (Grok CLI reads `SKILL.md` the same way) — symlink every
+pack into both. Run [`scripts/install-skills.sh`](../scripts/install-skills.sh)
+to do this idempotently for everything under `skills/`, or symlink individual
+packs by hand:
 
 ```bash
-for s in meeting-synthesis research-synthesis panning-for-gold entity-brief graph-tour; do
-  ln -s "$(pwd)/skills/$s" "$HOME/.claude/skills/$s"
+for target in "$HOME/.claude/skills" "$HOME/.grok/skills"; do
+  for s in meeting-synthesis research-synthesis panning-for-gold entity-brief graph-tour dream echo-capture; do
+    ln -s "$(pwd)/skills/$s" "$target/$s"
+  done
 done
 ```
 

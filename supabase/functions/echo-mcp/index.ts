@@ -6,6 +6,7 @@ import { type Context, Hono } from "hono";
 import { ECHO_OWNER_USER_ID, SUPABASE_URL, supabaseAuthClient } from "./config.ts";
 import { registerCaptureThought } from "./tools/capture-thought.ts";
 import { registerDeleteThought } from "./tools/delete-thought.ts";
+import { registerDreamApply, registerDreamReview } from "./tools/dream.ts";
 import { registerFindPath } from "./tools/find-path.ts";
 import { registerGetEntity } from "./tools/get-entity.ts";
 import { registerGetProfile } from "./tools/get-profile.ts";
@@ -46,6 +47,8 @@ function createServer(): McpServer {
 	registerGetTopicPage(server);
 	registerRefreshTopicPage(server);
 	registerLintThoughts(server);
+	registerDreamReview(server);
+	registerDreamApply(server);
 	registerListEntities(server);
 	registerGetEntity(server);
 	registerRefreshEntityPage(server);
