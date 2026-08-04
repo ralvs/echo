@@ -315,11 +315,15 @@ Both hooks fail silently — any error logs to stderr and exits 0 so they never 
 
 After installing, have a short Claude Code conversation with one clear decision and one off-topic exchange, then:
 
+Ask the MCP `list_thoughts` tool for the last day, or from a terminal:
+
 ```bash
-curl 'http://localhost:3000/api/thoughts?days=1' | jq '.[] | select(.source_kind=="claude-transcript")'
+bun run scripts/claude-hooks/catch-up.ts --hours 24
 ```
 
 Expect: the decision captured, the off-topic not. Trigger compaction and confirm a `claude-precompact` thought appears with `memory_type: "episodic"` and `expires_at` ~30 days out.
+
+`/api/thoughts` is not a verification path — it is gated behind `requireOwner()` (ADR-0020) and answers only to a browser session, so `curl` gets a 401. If nothing was captured, check `~/Library/Logs/echo/ingest.err.log`; the hooks exit 0 by design, so that file is where failures surface.
 
 ---
 
@@ -547,6 +551,7 @@ vercel --prod
 | MCP resource server is OAuth-only ([ADR-0019](docs/adr/0019-mcp-resource-server-accepts-bearer-token-or-oauth.md)) | Claude Desktop/web/iOS have no UI for a custom bearer header — only an OAuth 2.1 client works there; the legacy static-token path was removed in July 2026 once Claude Code migrated |
 | Dashboard auth reuses the MCP Owner identity ([ADR-0020](docs/adr/0020-dashboard-auth-reuses-the-mcp-owner-identity.md)) | One trusted user on every transport: `requireOwner()` inside every API handler validates the Supabase session and matches `ECHO_OWNER_USER_ID`, fail-closed; middleware is UX-only |
 | Embedding text is owner-anchored ([ADR-0021](docs/adr/0021-embedding-text-is-owner-anchored.md)) | First-person captures never name the Owner but queries do — prefixing "About <owner>:" closes that perspective gap; measured +0.02 nDCG@10 and turned the worst query from a miss into a rank-1 hit |
+| Dream proposals are bundle rows awaiting approval ([ADR-0022](docs/adr/0022-dream-proposals-are-bundle-rows-awaiting-approval.md)) | One `is_bundle` row per night keeps the review queue reachable from Desktop and mobile without polluting search; `1,3` stays stable between the 3am write and the 9am apply; `DreamAction` has no delete verb, and duplicate merges need an affirmative LLM verdict after a 0.95-cosine heuristic proposed destroying four distinct records |
 | OAuth consent page is a standalone static Vercel project (`consent/`), not a Supabase Edge Function | Supabase's edge gateway force-rewrites `text/html` to `text/plain` on the default `*.supabase.co` domain; HTML can't be served from a function there without a paid custom domain |
 | `verify_jwt = false` in config.toml | Required because the MCP client sends a custom Bearer token, not a Supabase JWT |
 | Runtime-neutral `_shared` module layer | Capture, resolve, extraction, and page lifecycles are implemented once; Next.js and the edge function are thin adapters, so the two runtimes cannot drift |

@@ -99,8 +99,15 @@ The `command` paths in `settings.json` are the on/off switch. Comment out or rem
 After installing, have a short Claude Code conversation that includes one clear decision and one off-topic ramble, then:
 
 ```bash
-# Inside this repo, with the dev server running:
-curl 'http://localhost:3000/api/thoughts?days=1' | jq '.[] | select(.source_kind=="claude-transcript")'
+bun run scripts/claude-hooks/catch-up.ts --hours 24
 ```
 
 Expect: the decision captured, the ramble not. Trigger a compaction (long session) and confirm a `claude-precompact` thought appears with `memory_type: "episodic"`.
+
+No dev server is needed — ingestion calls the capture pipeline directly on a
+service-role key. `/api/thoughts` is gated behind `requireOwner()` and answers
+only to a browser session, so it is not a verification path.
+
+Hooks always exit 0 so a capture failure never blocks a session. That means
+**stderr is not where failures show up** — check `~/Library/Logs/echo/ingest.err.log`,
+which gets one JSON line per failure. Set `ECHO_LOG_DIR` to relocate it.
