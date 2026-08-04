@@ -153,7 +153,15 @@ export async function ingestRaw(
 
 export async function ingestTurn(
 	turn: Turn,
-	opts: { projectName?: string; sessionId?: string; writer?: CaptureWriter } = {},
+	opts: {
+		projectName?: string;
+		sessionId?: string;
+		writer?: CaptureWriter;
+		/** Overrides the derived `${sessionId}:${turnIndex}` source id, e.g. for grok:<uuid>:<n>. */
+		sourceId?: string;
+		/** Overrides the default "claude-transcript" source kind, e.g. "grok-transcript". */
+		sourceKind?: string;
+	} = {},
 ): Promise<IngestResult> {
 	if (!passesPrefilter(turn)) {
 		return {
@@ -176,7 +184,7 @@ export async function ingestTurn(
 		};
 	}
 
-	const sourceId = `${sessionId}:${turn.turnIndex}`;
+	const sourceId = opts.sourceId ?? `${sessionId}:${turn.turnIndex}`;
 	const writer = opts.writer ?? directWriter;
 
 	const { decision, usage } = await relevanceGate({
@@ -199,7 +207,7 @@ export async function ingestTurn(
 		const { duplicate } = await writer({
 			content: decision.content,
 			source_id: sourceId,
-			source_kind: "claude-transcript",
+			source_kind: opts.sourceKind ?? "claude-transcript",
 			type: decision.suggested_type,
 			topics: decision.suggested_topics,
 			memory_type: decision.memory_type,

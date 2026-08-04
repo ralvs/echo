@@ -2,11 +2,17 @@
 /**
  * Mine Claude Code transcripts into Echo thoughts.
  *
- * Cost-safe: scans a hardcoded allowlist of projects, applies a cheap regex
- * pre-filter, runs each surviving turn through a Haiku relevance gate, and
- * POSTs gate-positive captures to /api/thoughts. Stops gracefully when either
- * the per-batch turn cap or USD cap is hit. Resume-safe via a checkpoint file
- * keyed by (project, sessionId, turnIndex).
+ * Cost-safe: scans project directories under ~/.claude/projects/, restricts
+ * to ingestable (personal) sessions via isIngestable (scripts/lib/ingest-scope.ts),
+ * applies a cheap regex pre-filter, runs each surviving turn through a Haiku
+ * relevance gate, and POSTs gate-positive captures to /api/thoughts. Stops
+ * gracefully when either the per-batch turn cap or USD cap is hit.
+ * Resume-safe via a checkpoint file keyed by (project, sessionId, turnIndex).
+ *
+ * The scope guard (isIngestable) is applied per-session-file, before that
+ * file's content is parsed — see listSessionsForProject below. This replaces
+ * the former hardcoded project allowlist: a paper trail is no longer needed
+ * because scope is now enforced by cwd, not by editing a committed list.
  *
  * The user runs this command. This script never auto-runs.
  *
@@ -17,11 +23,12 @@
  *   bun run scripts/mine-claude-transcripts.ts --project worthscene --reset-checkpoint
  */
 
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CostTracker } from "@/scripts/lib/cost-tracker";
 import { flushBackground, ingestTurn } from "@/scripts/lib/ingest";
+import { isIngestable } from "@/scripts/lib/ingest-scope";
 import {
 	emptyState,
 	lastTurnFor,
@@ -34,17 +41,42 @@ import {
 } from "@/scripts/lib/mine-state";
 import { progressFilePath, writeProgress } from "@/scripts/lib/progress-file";
 import { pairTurns, parseTranscript, passesPrefilter } from "@/scripts/lib/transcript-prefilter";
-import {
-	ALLOWED_PROJECT_DIRS,
-	type AllowedProjectDir,
-	resolveProjectDir,
-} from "@/scripts/mine-claude-transcripts.allowlist";
+import { readTranscriptCwd } from "@/scripts/lib/transcript-scan";
 
 const PROJECTS_ROOT = `${homedir()}/.claude/projects`;
 
+/** Convenience aliases for --project; not a security boundary — isIngestable is. */
+const PROJECT_ALIASES: Record<string, string> = {
+	echo: "-Volumes-stuff-renan-echo",
+	worthscene: "-Volumes-stuff-renan-worthscene",
+	ora: "-Volumes-stuff-ora",
+	quantic: "-Volumes-stuff-renan-quantic",
+};
+
+function listProjectDirs(): string[] {
+	try {
+		return readdirSync(PROJECTS_ROOT).filter((d) => {
+			try {
+				return statSync(join(PROJECTS_ROOT, d)).isDirectory();
+			} catch {
+				return false;
+			}
+		});
+	} catch (err) {
+		console.error(`Cannot read ${PROJECTS_ROOT}: ${(err as Error).message}`);
+		return [];
+	}
+}
+
+/** Resolves a --project value (alias or literal dir name) to a dir that exists. */
+function resolveProjectDir(name: string): string | null {
+	const candidate = PROJECT_ALIASES[name] ?? name;
+	return listProjectDirs().includes(candidate) ? candidate : null;
+}
+
 type Args = {
 	dryRun: boolean;
-	project?: AllowedProjectDir;
+	project?: string;
 	batchSize: number;
 	maxCostUsd: number;
 	resetCheckpoint: boolean;
@@ -68,7 +100,7 @@ function parseArgs(argv: string[]): Args {
 			const resolved = resolveProjectDir(name);
 			if (!resolved) {
 				console.error(
-					`Error: project "${name}" not in allowlist. Allowed: ${ALLOWED_PROJECT_DIRS.join(", ")}`,
+					`Error: project "${name}" not found under ~/.claude/projects/. Known: ${listProjectDirs().join(", ")}`,
 				);
 				process.exit(2);
 			}
@@ -93,12 +125,8 @@ Usage:
 
 Flags:
   --dry-run                Measure exposure, plan batches, write progress file. Zero API spend.
-  --project <name>         Required when not dry-run. One of: ${Object.keys({
-		echo: 1,
-		worthscene: 1,
-		ora: 1,
-		quantic: 1,
-	}).join(", ")}
+  --project <name>         Required when not dry-run. A ~/.claude/projects/ dir name, or one of
+                            these aliases: ${Object.keys(PROJECT_ALIASES).join(", ")}
   --batch-size <N>         Cap gate calls per run (default 250).
   --max-cost-usd <N>       Cap USD spend per run (default 1.5).
   --reset-checkpoint       Clear checkpoint for the chosen project before running.
@@ -110,21 +138,28 @@ State files:
 `);
 }
 
-function listSessionsForProject(project: AllowedProjectDir): string[] {
+/**
+ * Lists session files for a project, restricted to ingestable (personal)
+ * sessions. The scope guard runs against each file's leading `cwd` field —
+ * before parseTranscript reads the rest of the file's content.
+ */
+function listSessionsForProject(project: string): string[] {
 	const dir = join(PROJECTS_ROOT, project);
+	let files: string[];
 	try {
-		return readdirSync(dir)
+		files = readdirSync(dir)
 			.filter((f) => f.endsWith(".jsonl"))
 			.map((f) => join(dir, f));
 	} catch (err) {
 		console.error(`Project dir missing: ${dir} (${(err as Error).message})`);
 		return [];
 	}
+	return files.filter((f) => isIngestable(readTranscriptCwd(f)));
 }
 
 function measureExposure(): MineState {
 	const state = loadState() ?? emptyState();
-	for (const project of ALLOWED_PROJECT_DIRS) {
+	for (const project of listProjectDirs()) {
 		const files = listSessionsForProject(project);
 		let userMsgs = 0;
 		let assistantMsgs = 0;
@@ -155,7 +190,7 @@ function measureExposure(): MineState {
 
 function planBatches(state: MineState, batchSize: number, maxCostUsd: number): MineState {
 	// Smallest projects first so the gate prompt gets validated cheaply.
-	const order: AllowedProjectDir[] = [...ALLOWED_PROJECT_DIRS].sort((a, b) => {
+	const order: string[] = [...Object.keys(state.exposure)].sort((a, b) => {
 		const aT = state.exposure[a]?.prefilteredTurns ?? 0;
 		const bT = state.exposure[b]?.prefilteredTurns ?? 0;
 		return aT - bT;
@@ -285,13 +320,13 @@ async function runBatch(state: MineState, args: Args): Promise<void> {
 }
 
 async function runDryRun(args: Args): Promise<void> {
-	console.log("Measuring exposure across allowlisted projects (no API calls)...\n");
+	console.log("Measuring exposure across ingestable projects (no API calls)...\n");
 	let state = measureExposure();
 	state = planBatches(state, args.batchSize, args.maxCostUsd);
 	saveState(state);
 	writeProgress(state);
 
-	for (const project of ALLOWED_PROJECT_DIRS) {
+	for (const project of Object.keys(state.exposure)) {
 		const exp = state.exposure[project];
 		if (!exp) continue;
 		console.log(

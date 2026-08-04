@@ -1,7 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
-import type { AllowedProjectDir } from "@/scripts/mine-claude-transcripts.allowlist";
+
+/**
+ * A project directory name under ~/.claude/projects/. No longer a fixed
+ * allowlist union — scope is enforced at scan time via isIngestable
+ * (scripts/lib/ingest-scope.ts), not by the shape of this type.
+ */
+export type AllowedProjectDir = string;
 
 export type ProjectExposure = {
 	files: number;
