@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod";
-import type { Ai } from "./model.ts";
+import type { Ai, ModelUsage } from "./model.ts";
 import type { PersonRecord } from "./types.ts";
 
 const ExtractionSchema = z.object({
@@ -576,5 +576,108 @@ Return ONLY valid JSON: {"thoughts": [...]}`,
 	} catch (err) {
 		console.error("Decomposition failed, saving as-is:", err);
 		return null;
+	}
+}
+
+/** One user→assistant turn handed to the dream classifier, along with the
+ * existing memories retrieved for it (see dream.ts's grounding step). Only
+ * ids present in `groundedMemories` are trustworthy — the classifier is
+ * asked to pick target ids from that list rather than invent them. */
+export type DreamClassifyItem = {
+	sessionId: string;
+	turnIndex: number;
+	userMessage: string;
+	assistantMessage: string;
+	at: string;
+	groundedMemories: { id: string; content: string }[];
+};
+
+const DreamProposalSchema = z.object({
+	session_id: z.string(),
+	turn_index: z.number(),
+	category: z.enum(["correction", "preference", "new_fact", "stale", "duplicate"]),
+	action: z.enum(["create", "update", "supersede", "merge", "expire"]),
+	target_ids: z.array(z.string()).default([]),
+	proposed_content: z.string(),
+	quote: z.string(),
+	confidence: z.number().min(0).max(1),
+	rationale: z.string(),
+});
+
+const DreamProposeSchema = z.object({
+	proposals: z.array(DreamProposalSchema).default([]),
+});
+
+export type RawDreamProposal = z.infer<typeof DreamProposalSchema>;
+
+export type ProposeMemoryChangesResult = {
+	proposals: RawDreamProposal[];
+	usage: ModelUsage;
+};
+
+const NO_USAGE: ModelUsage = { inputTokens: 0, outputTokens: 0 };
+
+/**
+ * Classifies a batch of grounded transcript turns into candidate memory
+ * changes. Fails closed like relevanceGate: any transport error or schema
+ * mismatch returns zero proposals rather than throwing, so a single bad
+ * model response can never crash the nightly dream run.
+ */
+export async function proposeMemoryChanges(
+	ai: Ai,
+	batch: DreamClassifyItem[],
+): Promise<ProposeMemoryChangesResult> {
+	if (!batch.length) return { proposals: [], usage: NO_USAGE };
+
+	const itemsText = batch
+		.map((item, i) => {
+			const grounded = item.groundedMemories.length
+				? item.groundedMemories.map((m) => `  - (ID: ${m.id}) ${m.content}`).join("\n")
+				: "  (none)";
+			return `[${i + 1}] session_id: ${item.sessionId}, turn_index: ${item.turnIndex}, at: ${item.at}
+User: ${item.userMessage}
+Assistant: ${item.assistantMessage}
+Existing related memories:
+${grounded}`;
+		})
+		.join("\n\n");
+
+	const req = {
+		system: `You review Claude Code / Grok session turns against a personal knowledge base and propose memory changes for the Owner to approve. You never write anything yourself — you only propose.
+
+For each turn that reveals something worth remembering, updating, or retiring, emit one proposal:
+- "category": one of "correction" (the owner corrected something previously stored), "preference" (a preference stated or changed), "new_fact" (a durable fact not yet stored), "stale" (an existing memory the turn shows is now wrong or outdated), "duplicate" (the turn restates something already stored near-identically)
+- "action": one of "create" (no existing memory covers this — target_ids MUST be empty), "update" (a real memory needs its content revised), "supersede" (a real memory is now wrong and should be replaced), "merge" (near-duplicate real memories should be combined), "expire" (a real memory is no longer relevant and should be hidden, not deleted)
+- "target_ids": the exact "ID: ..." values from "Existing related memories" that this proposal concerns. Only use ids that appear verbatim in that list — never invent an id. Empty array for "create".
+- "proposed_content": a self-contained statement suitable to save as the new/updated memory
+- "quote": the exact substring of the User or Assistant message that is the evidence for this proposal
+- "confidence": 0.0-1.0
+- "rationale": one sentence explaining the proposal
+- "session_id" and "turn_index": copy verbatim from the turn this proposal is about
+
+Skip turns that don't warrant a change. Return ONLY valid JSON: {"proposals": [...]}. Empty array if nothing to propose.`,
+		prompt: itemsText,
+		maxOutputTokens: 2048,
+		jsonObject: true,
+	};
+
+	// Hoisted out of the try: on a parse throw below, the catch must still
+	// return the tokens actually spent (already reflected in `usage` once the
+	// model call itself succeeded), not NO_USAGE — an unattended run tracking
+	// spend against --max-usd would otherwise undercount every malformed
+	// response and blow past the cap.
+	let usage: ModelUsage = NO_USAGE;
+	try {
+		const result = ai.generateWithUsage
+			? await ai.generateWithUsage(req)
+			: { text: await ai.generate(req), usage: NO_USAGE };
+		usage = result.usage;
+		const clean = result.text.replace(/^```(?:json)?\s*|\s*```$/g, "").trim();
+		const parsed = DreamProposeSchema.safeParse(JSON.parse(clean));
+		if (!parsed.success) return { proposals: [], usage };
+		return { proposals: parsed.data.proposals, usage };
+	} catch (err) {
+		console.error("Dream classification failed:", err);
+		return { proposals: [], usage };
 	}
 }
