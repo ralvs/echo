@@ -7,7 +7,7 @@ import {
 	lintThoughts,
 	type ThoughtRef,
 } from "../../_shared/lint.ts";
-import { supabase } from "../config.ts";
+import { ECHO_OWNER_NAME, supabase } from "../config.ts";
 import { ai } from "../model.ts";
 import { preview, registerTextTool } from "./contract.ts";
 

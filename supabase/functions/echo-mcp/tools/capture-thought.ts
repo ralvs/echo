@@ -1,7 +1,13 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { captureThought } from "../../_shared/capture.ts";
-import { DECOMPOSE_ENABLED, DECOMPOSE_MIN_TOKENS, PRIORITY_LABELS, supabase } from "../config.ts";
+import {
+	DECOMPOSE_ENABLED,
+	DECOMPOSE_MIN_TOKENS,
+	ECHO_OWNER_NAME,
+	PRIORITY_LABELS,
+	supabase,
+} from "../config.ts";
 import { ai } from "../model.ts";
 import { registerTextTool, ToolError } from "./contract.ts";
 

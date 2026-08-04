@@ -8,6 +8,8 @@
 		"start": "next start",
 		"lint": "biome check .",
 		"format": "biome format . --write",
+		"check": "biome check . && tsc --noEmit && vitest run",
+		"check:deno": "deno check --node-modules-dir=auto supabase/functions/echo-mcp/index.ts",
 		"mine": "bun run scripts/mine-claude-transcripts.ts",
 		"test": "vitest run",
 		"test:watch": "vitest",

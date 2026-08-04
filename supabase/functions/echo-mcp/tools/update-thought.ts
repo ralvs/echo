@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { updateThought } from "../../_shared/update.ts";
-import { supabase } from "../config.ts";
+import { ECHO_OWNER_NAME, supabase } from "../config.ts";
 import { ai } from "../model.ts";
 import { registerTextTool, ToolError } from "./contract.ts";
 

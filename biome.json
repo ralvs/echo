@@ -14,6 +14,21 @@
 		"enabled": true,
 		"rules": { "recommended": true }
 	},
+	"overrides": [
+		{
+			"includes": ["supabase/functions/echo-mcp/**", "supabase/functions/_shared/**"],
+			"javascript": {
+				"globals": ["Deno"]
+			},
+			"linter": {
+				"rules": {
+					"correctness": {
+						"noUndeclaredVariables": "error"
+					}
+				}
+			}
+		}
+	],
 	"formatter": {
 		"enabled": true,
 		"indentStyle": "tab",
