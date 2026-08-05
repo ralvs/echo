@@ -104,6 +104,45 @@ export function findRecentGrokSessions(sinceMs: number): string[] {
 }
 
 /**
+ * Whether a Grok session was driven by the Owner at a keyboard, as opposed to
+ * spawned as a subagent by another agent.
+ *
+ * The Grok CLI opens an interactive session by injecting a `<user_info>`
+ * header (OS, shell, workspace path, date) as the first user entry. A
+ * subagent session inherits the parent's context instead and opens straight
+ * into a `<system-reminder>` block, so the header is absent. On this machine
+ * that discriminator splits 18 interactive sessions from 36 subagent ones —
+ * two thirds of the Grok corpus is agent-to-agent traffic that must never be
+ * mined as if the Owner had said it.
+ *
+ * Fails toward silence: if Grok ever stops emitting the header, every session
+ * reads as a subagent and Grok capture goes quiet. That is the safe
+ * direction — a silent source is recoverable, a corpus polluted with
+ * machine-authored "facts" is not — but it is why this is worth revisiting if
+ * Grok turns stop appearing in dream reports entirely.
+ */
+export function isInteractiveGrokSession(filePath: string): boolean {
+	let raw: string;
+	try {
+		raw = readFileSync(filePath, "utf-8");
+	} catch {
+		return false;
+	}
+	for (const line of raw.split(/\r?\n/)) {
+		if (!line.trim()) continue;
+		let entry: GrokEntry;
+		try {
+			entry = JSON.parse(line) as GrokEntry;
+		} catch {
+			continue;
+		}
+		if (entry.type !== "user") continue;
+		return extractGrokText(entry.content).includes("<user_info>");
+	}
+	return false;
+}
+
+/**
  * Parses one Grok chat_history.jsonl into user→assistant Turn pairs,
  * skipping tool_result/reasoning/system entries. Mirrors pairTurns in
  * transcript-prefilter.ts: a turn is one user message followed by the next

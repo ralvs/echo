@@ -645,17 +645,27 @@ ${grounded}`;
 	const req = {
 		system: `You review Claude Code / Grok session turns against a personal knowledge base and propose memory changes for the Owner to approve. You never write anything yourself — you only propose.
 
-For each turn that reveals something worth remembering, updating, or retiring, emit one proposal:
-- "category": one of "correction" (the owner corrected something previously stored), "preference" (a preference stated or changed), "new_fact" (a durable fact not yet stored), "stale" (an existing memory the turn shows is now wrong or outdated), "duplicate" (the turn restates something already stored near-identically)
+The bar is high. A turn only warrants a proposal when the Owner themselves revealed something durable about how they work, what they prefer, or what is true of their life and projects. The default answer for any given turn is no proposal.
+
+Only the "User" text is the Owner speaking. The "Assistant" text is a machine's own output — analysis, code review findings, exploration reports, architecture write-ups, task summaries. Use it only to interpret what the Owner meant, NEVER as the source of a fact. An assistant-authored finding is not something the Owner said, believes, or decided.
+
+Reject these outright — they are the most common false positives:
+- Analysis, audits, review findings, or architecture reports produced by the assistant or a subagent, however detailed or confident.
+- Transient state of a codebase: current error or test counts, "N issues blocking merge", present contents of a file, what is currently failing, which line of which file holds what. This changes the moment someone edits the code, so storing it manufactures a memory that is wrong within days. This holds even when the Owner stated it themselves and even when they pasted a detailed analysis — who reported the state does not make the state durable. The durable version of such a turn, if there is one, is the standing lesson (a policy, a constraint, a rule now enforced), never the measurement.
+- A task, plan, or instruction the Owner gave for right now. Work that will be finished shortly is not a durable preference. Store the standing preference it implies, if any — never the assignment itself.
+- Anything already implied by the repository, its docs, or its git history.
+
+For each turn that genuinely clears that bar, emit one proposal:
+- "category": one of "correction" (the owner corrected something previously stored), "preference" (a standing preference the owner stated or changed — how they want things done in general, not a one-off request), "new_fact" (a durable fact about the owner, their projects, people, or decisions that will still be true in six months), "stale" (an existing memory the turn shows is now wrong or outdated), "duplicate" (the turn restates something already stored near-identically)
 - "action": one of "create" (no existing memory covers this — target_ids MUST be empty), "update" (a real memory needs its content revised), "supersede" (a real memory is now wrong and should be replaced), "merge" (near-duplicate real memories should be combined), "expire" (a real memory is no longer relevant and should be hidden, not deleted)
 - "target_ids": the exact "ID: ..." values from "Existing related memories" that this proposal concerns. Only use ids that appear verbatim in that list — never invent an id. Empty array for "create".
 - "proposed_content": a self-contained statement suitable to save as the new/updated memory
-- "quote": the exact substring of the User or Assistant message that is the evidence for this proposal
+- "quote": the exact substring of the **User** message that is the evidence for this proposal. If the only support you can find is in the Assistant message, do not emit the proposal at all.
 - "confidence": 0.0-1.0
 - "rationale": one sentence explaining the proposal
 - "session_id" and "turn_index": copy verbatim from the turn this proposal is about
 
-Skip turns that don't warrant a change. Return ONLY valid JSON: {"proposals": [...]}. Empty array if nothing to propose.`,
+Skip turns that don't warrant a change — most turns don't. Returning an empty array is the correct and expected outcome for an ordinary working session. Return ONLY valid JSON: {"proposals": [...]}.`,
 		prompt: itemsText,
 		// 4096, paired with dream.ts's CLASSIFY_BATCH_SIZE (kept small enough that
 		// a full batch's worth of proposals comfortably fits) — a real run at

@@ -24,12 +24,16 @@ const LONG_USER_MSG =
 	"and it caused a confusing on-call page that took an hour to root-cause properly.";
 const ASSISTANT_MSG =
 	"You should invalidate on write and add a short TTL as a backstop for any missed invalidations.";
+/** The header the Grok CLI injects to open an Owner-driven session. */
+const GROK_HEADER =
+	"<user_info>\nOS Version: macos\nShell: /bin/zsh\nWorkspace Path: /Volumes/stuff/renan/dispatch\n</user_info>";
 
 function writeClaudeTranscript(
 	root: string,
 	projectDir: string,
 	fileName: string,
 	cwd: string | undefined,
+	userMessage: string = LONG_USER_MSG,
 ) {
 	const dir = join(root, projectDir);
 	mkdirSync(dir, { recursive: true });
@@ -42,7 +46,7 @@ function writeClaudeTranscript(
 			timestamp: new Date(NOW).toISOString(),
 			sessionId: "session-1",
 			cwd,
-			message: { role: "user", content: LONG_USER_MSG },
+			message: { role: "user", content: userMessage },
 		});
 	} else {
 		// No cwd field at all — undeterminable.
@@ -51,7 +55,7 @@ function writeClaudeTranscript(
 			uuid: "u1",
 			timestamp: new Date(NOW).toISOString(),
 			sessionId: "session-1",
-			message: { role: "user", content: LONG_USER_MSG },
+			message: { role: "user", content: userMessage },
 		});
 	}
 	lines.push({
@@ -66,14 +70,26 @@ function writeClaudeTranscript(
 	return path;
 }
 
-function writeGrokSession(root: string, encodedCwd: string, uuid: string) {
+/**
+ * `interactive: false` writes a subagent session — one that opens straight
+ * into inherited context with no <user_info> header, the way the Grok CLI
+ * records an agent it spawned rather than a session the Owner drove.
+ */
+function writeGrokSession(
+	root: string,
+	encodedCwd: string,
+	uuid: string,
+	opts: { interactive?: boolean } = {},
+) {
 	const dir = join(root, encodedCwd, uuid);
 	mkdirSync(dir, { recursive: true });
 	const path = join(dir, "chat_history.jsonl");
+	const opener =
+		opts.interactive === false ? "<system-reminder>context</system-reminder>" : GROK_HEADER;
 	const lines = [
 		{
 			type: "user",
-			content: LONG_USER_MSG,
+			content: `${opener}\n<user_query>${LONG_USER_MSG}</user_query>`,
 			prompt_index: 0,
 			timestamp: new Date(NOW).toISOString(),
 		},
@@ -189,5 +205,78 @@ describe("scanWindow", () => {
 		const turns = scanWindow(1);
 
 		expect(turns).toHaveLength(0);
+	});
+
+	/**
+	 * Regression: the 2026-08-04 dream run mined 7 of 12 proposals from turns
+	 * whose "user message" was nothing but harness preamble — system reminders
+	 * and the global CLAUDE.md echoed back under the user role. Those turns
+	 * passed the old filter precisely because they were long.
+	 */
+	it("drops a turn whose user message is only harness preamble", () => {
+		writeClaudeTranscript(
+			claudeRoot,
+			"-Volumes-stuff-renan-x",
+			"preamble.jsonl",
+			"/Volumes/stuff/renan/x",
+			`<system-reminder>${LONG_USER_MSG}\n${LONG_USER_MSG}</system-reminder>`,
+		);
+
+		expect(scanWindow(1)).toHaveLength(0);
+	});
+
+	it("keeps only the Owner's residue when a preamble wraps real text", () => {
+		writeClaudeTranscript(
+			claudeRoot,
+			"-Volumes-stuff-renan-x",
+			"residue.jsonl",
+			"/Volumes/stuff/renan/x",
+			`<system-reminder>${LONG_USER_MSG}</system-reminder>\nkeep finished tasks on the Today page`,
+		);
+
+		const turns = scanWindow(1);
+
+		expect(turns).toHaveLength(1);
+		expect(turns[0].userMessage).toBe("keep finished tasks on the Today page");
+	});
+
+	it("drops Grok subagent sessions while keeping the Owner's own", () => {
+		writeGrokSession(grokRoot, encodeURIComponent("/Volumes/stuff/renan/dispatch"), "grok-owner");
+		writeGrokSession(
+			grokRoot,
+			encodeURIComponent("/Volumes/stuff/renan/dispatch"),
+			"grok-subagent",
+			{
+				interactive: false,
+			},
+		);
+
+		const turns = scanWindow(48);
+
+		expect(turns).toHaveLength(1);
+		expect(turns[0].sessionId).toBe("grok-owner");
+	});
+
+	it("unwraps the Grok <user_query> tag rather than discarding its contents", () => {
+		writeGrokSession(grokRoot, encodeURIComponent("/Volumes/stuff/renan/dispatch"), "grok-owner");
+
+		const turns = scanWindow(48);
+
+		expect(turns[0].userMessage).toBe(LONG_USER_MSG);
+	});
+
+	it("keeps a short correction the old length floor would have discarded", () => {
+		writeClaudeTranscript(
+			claudeRoot,
+			"-Volumes-stuff-renan-x",
+			"short.jsonl",
+			"/Volumes/stuff/renan/x",
+			"no, use Luxon for dates instead of date-fns",
+		);
+
+		const turns = scanWindow(1);
+
+		expect(turns).toHaveLength(1);
+		expect(turns[0].userMessage).toBe("no, use Luxon for dates instead of date-fns");
 	});
 });

@@ -19,8 +19,14 @@
 import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { findRecentGrokSessions, grokCwdDirFromPath, parseGrokHistory } from "./grok-transcript";
+import {
+	findRecentGrokSessions,
+	grokCwdDirFromPath,
+	isInteractiveGrokSession,
+	parseGrokHistory,
+} from "./grok-transcript";
 import { decodeGrokCwd, isIngestable } from "./ingest-scope";
+import { ownerText } from "./owner-message";
 import {
 	pairTurns,
 	parseTranscript,
@@ -43,6 +49,18 @@ export type ScannedTurn = Turn & {
 	transcriptPath: string;
 	source: "claude" | "grok";
 };
+
+/**
+ * Narrows a turn's user message to the Owner-authored residue before anything
+ * downstream sees it. Without this the harness preamble (system reminders, the
+ * global CLAUDE.md, MCP/skill listings) dominates the text that gets embedded
+ * for grounding and handed to the classifier — kilobytes of machine noise
+ * around a sentence of actual signal. passesPrefilter drops what reduces to
+ * nothing; this makes sure what survives is only the Owner's words.
+ */
+function withOwnerMessage(turn: Turn): Turn {
+	return { ...turn, userMessage: ownerText(turn.userMessage) };
+}
 
 export function findRecentTranscripts(sinceMs: number): string[] {
 	const results: string[] = [];
@@ -141,7 +159,8 @@ export function scanClaudeFile(filePath: string): ScannedTurn[] {
 
 	const projectName = projectNameFromPath(filePath);
 	const out: ScannedTurn[] = [];
-	for (const turn of pairTurns(messages)) {
+	for (const raw of pairTurns(messages)) {
+		const turn = withOwnerMessage(raw);
 		if (!passesPrefilter(turn)) continue;
 		out.push({ ...turn, projectName, transcriptPath: filePath, source: "claude" });
 	}
@@ -157,6 +176,10 @@ export function scanGrokFile(filePath: string): ScannedTurn[] {
 	const cwd = dirName ? decodeGrokCwd(dirName) : null;
 	if (!isIngestable(cwd)) return [];
 
+	// Subagent sessions are agent-to-agent traffic: the "user" role carries a
+	// delegation prompt, not the Owner. See isInteractiveGrokSession.
+	if (!isInteractiveGrokSession(filePath)) return [];
+
 	let turns: Turn[];
 	try {
 		turns = parseGrokHistory(filePath);
@@ -166,7 +189,8 @@ export function scanGrokFile(filePath: string): ScannedTurn[] {
 	}
 
 	const out: ScannedTurn[] = [];
-	for (const turn of turns) {
+	for (const raw of turns) {
+		const turn = withOwnerMessage(raw);
 		if (!passesPrefilter(turn)) continue;
 		out.push({ ...turn, transcriptPath: filePath, source: "grok" });
 	}
