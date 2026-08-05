@@ -177,16 +177,18 @@ The MCP endpoint uses `verify_jwt = false` (Supabase gateway-level MCP auth isn'
 
 The Supabase secret key (`SUPABASE_SERVICE_ROLE_KEY`) is used internally for DB access; it's auto-injected by the Supabase platform into every edge function, never set manually. The Supabase **publishable** key is used only to validate caller-supplied OAuth tokens (`ECHO_PUBLISHABLE_KEY` — a custom secret; Supabase's CLI blocks any custom secret name starting with `SUPABASE_`, so it can't be named that) — it's safe to expose, it grants nothing on its own.
 
-The login + consent screen itself lives in **[`consent/`](consent/)**, deployed as its own standalone static page on Vercel (see that folder's README) — not as a Supabase Edge Function. Supabase's edge gateway force-rewrites `text/html` responses to `text/plain` on the default `*.supabase.co` domain (an anti-phishing guardrail) and applies a hard `sandbox` CSP, so HTML can't be served from an edge function there without paying for a custom domain.
+The login + consent screen lives in the Next.js app at **[`app/oauth/consent`](app/oauth/consent/page.tsx)**, alongside the MCP endpoint itself — see [ADR-0023](docs/adr/0023-mcp-endpoint-and-consent-move-behind-the-next-app.md). It still can't be a Supabase Edge Function: the edge gateway force-rewrites `text/html` responses to `text/plain` on the default `*.supabase.co` domain (an anti-phishing guardrail) and applies a hard `sandbox` CSP.
+
+Clients connect to `https://<your-domain>/api/mcp`, a thin proxy in front of the edge function — not to the Supabase URL directly. OAuth discovery (RFC 9728) has to answer at a domain root, and on `*.supabase.co` the root belongs to Supabase's gateway, so every canonical discovery path there 401s or 404s.
 
 #### One-time Supabase project setup for OAuth
 
 Done once in the dashboard (config.toml only governs local dev):
 
 1. **Authentication → Providers → Email**: disable "Allow new users to sign up".
-2. Deploy `consent/` to Vercel first (see [`consent/README.md`](consent/README.md)) to get its URL.
-3. **Authentication → URL Configuration**: set Site URL to the deployed `consent/` URL (e.g. `https://echo-consent.vercel.app`).
-4. **Authentication → OAuth Server**: enable it; set authorization path to `/` (the consent project has only one page); enable dynamic client registration (safe — login still requires the owner's password, and the resource server allowlists only the owner's user id).
+2. Deploy the Next.js app to Vercel first to get its URL (a custom domain is worth setting now — the OAuth `resource` is derived from whatever host clients connect to, so moving domains later forces every client to re-authorize).
+3. **Authentication → URL Configuration**: set Site URL to the app's URL (e.g. `https://echo.alves.id`).
+4. **Authentication → OAuth Server**: enable it; set authorization path to `/oauth/consent`; enable dynamic client registration (safe — login still requires the owner's password, and the resource server allowlists only the owner's user id).
 5. **Authentication → Users**: add the one owner user (email + strong password). Copy its UUID.
 6. `supabase secrets set ECHO_OWNER_USER_ID=<uuid> ECHO_PUBLISHABLE_KEY=<publishable key from API settings>`.
 7. `supabase functions deploy echo-mcp`.
@@ -194,8 +196,8 @@ Done once in the dashboard (config.toml only governs local dev):
 #### Add Echo as a custom connector (Claude Desktop / iOS)
 
 1. claude.ai → Settings → Connectors → Add custom connector.
-2. URL: `https://<project-ref>.supabase.co/functions/v1/echo-mcp`.
-3. Claude opens a browser to the consent page (`consent/`, on Vercel) → log in with the owner email/password → **Allow**.
+2. URL: `https://<your-domain>/api/mcp` — the app's proxy, not the Supabase function URL.
+3. Claude opens a browser to the consent page (`/oauth/consent`) → log in with the owner email/password → **Allow**.
 4. The connector is now available in Claude Desktop, web, and — once added on claude.ai — automatically on Claude iOS/Android too. Custom connectors require a paid Claude plan (Pro/Max/Team/Enterprise).
 
 ### Available tools
@@ -530,10 +532,7 @@ supabase secrets set ECHO_PUBLISHABLE_KEY=<your sb_publishable_... key>
 supabase secrets set ECHO_OWNER_USER_ID=<value>
 supabase secrets set ECHO_OWNER_NAME=<owner first name>
 
-# Deploy the OAuth consent page (its own standalone Vercel project — see consent/README.md)
-cd consent && vercel --prod && cd ..
-
-# Deploy frontend to Vercel
+# Deploy frontend to Vercel (also serves /api/mcp and the OAuth consent page)
 vercel --prod
 ```
 
@@ -552,7 +551,7 @@ vercel --prod
 | Dashboard auth reuses the MCP Owner identity ([ADR-0020](docs/adr/0020-dashboard-auth-reuses-the-mcp-owner-identity.md)) | One trusted user on every transport: `requireOwner()` inside every API handler validates the Supabase session and matches `ECHO_OWNER_USER_ID`, fail-closed; middleware is UX-only |
 | Embedding text is owner-anchored ([ADR-0021](docs/adr/0021-embedding-text-is-owner-anchored.md)) | First-person captures never name the Owner but queries do — prefixing "About <owner>:" closes that perspective gap; measured +0.02 nDCG@10 and turned the worst query from a miss into a rank-1 hit |
 | Dream proposals are bundle rows awaiting approval ([ADR-0022](docs/adr/0022-dream-proposals-are-bundle-rows-awaiting-approval.md)) | One `is_bundle` row per night keeps the review queue reachable from Desktop and mobile without polluting search; `1,3` stays stable between the 3am write and the 9am apply; `DreamAction` has no delete verb, and duplicate merges need an affirmative LLM verdict after a 0.95-cosine heuristic proposed destroying four distinct records |
-| OAuth consent page is a standalone static Vercel project (`consent/`), not a Supabase Edge Function | Supabase's edge gateway force-rewrites `text/html` to `text/plain` on the default `*.supabase.co` domain; HTML can't be served from a function there without a paid custom domain |
+| MCP endpoint and consent page are served by the Next.js app ([ADR-0023](docs/adr/0023-mcp-endpoint-and-consent-move-behind-the-next-app.md)) | RFC 9728 discovery must answer at a domain root, which on `*.supabase.co` belongs to Supabase's gateway — so every canonical path 401s or 404s and only clients that follow the `WWW-Authenticate` hint can connect. Fronting the endpoint from a root we control fixes discovery for every client and lets the consent page come along |
 | `verify_jwt = false` in config.toml | Required because the MCP client sends a custom Bearer token, not a Supabase JWT |
 | Runtime-neutral `_shared` module layer | Capture, resolve, extraction, and page lifecycles are implemented once; Next.js and the edge function are thin adapters, so the two runtimes cannot drift |
 | Model calls behind an `Ai` seam | Two adapters already existed (Vercel AI SDK in Node, raw fetch in Deno); prompts and schemas are now a single edit, and tests inject fakes |

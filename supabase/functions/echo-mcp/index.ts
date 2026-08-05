@@ -63,8 +63,12 @@ function createServer(): McpServer {
 // Auth: Authorization: Bearer <Supabase OAuth access token> — validated against
 // Supabase Auth and required to belong to ECHO_OWNER_USER_ID. All MCP clients
 // connect via the OAuth+PKCE flow against Supabase Auth's OAuth 2.1 server
-// (see echo-consent for the login/consent UI). Scripts/hooks talk to the DB
+// (login/consent UI: app/oauth/consent). Scripts/hooks talk to the DB
 // directly with the service-role key and never hit this endpoint.
+//
+// Clients reach this through the Next.js app at /api/mcp rather than calling
+// this URL directly — RFC 9728 discovery only works from a domain root we
+// control (ADR-0023). This stays the implementation; that route is a proxy.
 // Secret key is used only internally for DB access — never exposed in client config.
 // verify_jwt = false — the check above replaces the gateway's own JWT verification.
 

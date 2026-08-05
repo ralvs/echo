@@ -354,11 +354,10 @@ enabled = false
 # Backs the echo-mcp OAuth resource server: lets Claude Desktop/iOS connect
 # via OAuth+PKCE instead of the legacy static bearer token (Claude Code only).
 enabled = true
-# Path for OAuth consent flow UI — served by the standalone consent/ Vercel
-# project (see consent/README.md), combined with Site URL above. Supabase's
-# edge gateway force-rewrites HTML on *.supabase.co to text/plain, so this
-# page cannot live in a Supabase Edge Function on the default domain.
-authorization_url_path = "/"
+# Path for OAuth consent flow UI, combined with Site URL above — both now
+# point at the Next.js app (ADR-0023). The page cannot live in a Supabase Edge
+# Function: the gateway force-rewrites HTML on *.supabase.co to text/plain.
+authorization_url_path = "/oauth/consent"
 # Claude registers itself via DCR (no manual client id/secret needed). This is
 # safe because login still requires the single owner's password, and the
 # resource server allowlists only that owner's user id.
