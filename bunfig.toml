@@ -1,0 +1,6 @@
+[install]
+# Never silently resolve an import from Bun's global cache when the package is
+# missing from node_modules. Auto-install once masked a wiped node_modules by
+# pulling `ai@7` (incompatible with our Zod) into the Claude Code hooks, which
+# then failed on every session for two weeks. Fail loudly instead.
+auto = "disable"
