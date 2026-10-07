@@ -11,6 +11,7 @@ type ThoughtsState = {
 	isLoading: boolean;
 
 	setThoughts: (thoughts: Thought[]) => void;
+	removeThought: (id: string) => void;
 	setSelectedThought: (thought: Thought | null) => void;
 	setStats: (stats: ThoughtStats) => void;
 	setSearchQuery: (query: string) => void;
@@ -25,6 +26,7 @@ export const useThoughtsStore = create<ThoughtsState>((set) => ({
 	isLoading: false,
 
 	setThoughts: (thoughts) => set({ thoughts }),
+	removeThought: (id) => set((s) => ({ thoughts: s.thoughts.filter((t) => t.id !== id) })),
 	setSelectedThought: (selectedThought) => set({ selectedThought }),
 	setStats: (stats) => set({ stats }),
 	setSearchQuery: (searchQuery) => set({ searchQuery }),

@@ -36,6 +36,7 @@ function filtersToSearchParams(filters: ThoughtFilters): URLSearchParams {
 export function useThoughtList() {
 	const thoughts = useThoughtsStore((s) => s.thoughts);
 	const setThoughts = useThoughtsStore((s) => s.setThoughts);
+	const removeThought = useThoughtsStore((s) => s.removeThought);
 	const isLoading = useThoughtsStore((s) => s.isLoading);
 	const setIsLoading = useThoughtsStore((s) => s.setIsLoading);
 	const searchParams = useSearchParams();
@@ -71,11 +72,31 @@ export function useThoughtList() {
 		}
 	}, [searchParams, setThoughts, setIsLoading]);
 
+	// Optimistic: the card leaves the list at once. On failure, refetch so
+	// the list shows the real state again, then rethrow for the caller.
+	const deleteThought = useCallback(
+		async (id: string) => {
+			removeThought(id);
+			try {
+				const res = await fetch(`/api/thoughts/${id}`, { method: "DELETE" });
+				if (!res.ok) {
+					const data = await res.json().catch(() => ({}));
+					throw new Error(data.error ?? `HTTP ${res.status}`);
+				}
+			} catch (err) {
+				await refresh();
+				throw err;
+			}
+		},
+		[removeThought, refresh],
+	);
+
 	return {
 		thoughts,
 		isLoading,
 		filters,
 		setFilters,
 		refresh,
+		deleteThought,
 	};
 }
