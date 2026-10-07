@@ -3,7 +3,7 @@
 import { DateTime } from "luxon";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { TypeTag } from "@/components/type-tag";
 import { useSearch } from "@/lib/hooks/use-search";
 import { useThoughtList } from "@/lib/hooks/use-thought-list";
@@ -27,13 +27,24 @@ export default function ThoughtsPage() {
 }
 
 function ThoughtsPageContent() {
-	const { thoughts, isLoading, filters, setFilters, refresh } = useThoughtList();
+	const { thoughts, deletedIds, isLoading, filters, setFilters, refresh, deleteThought } =
+		useThoughtList();
 	const { query, setQuery, results: searchResults, isSearching, search } = useSearch();
+	const [deleteError, setDeleteError] = useState<string | null>(null);
 	useEffect(() => {
 		if (!query) refresh();
 	}, [refresh, query]);
 
-	const displayThoughts = query ? searchResults : thoughts;
+	const handleDelete = async (id: string) => {
+		setDeleteError(null);
+		try {
+			await deleteThought(id);
+		} catch (err) {
+			setDeleteError(err instanceof Error ? err.message : String(err));
+		}
+	};
+
+	const displayThoughts = query ? searchResults.filter((t) => !deletedIds.has(t.id)) : thoughts;
 
 	return (
 		<div className="p-8 max-w-[1000px]">
@@ -201,6 +212,22 @@ function ThoughtsPageContent() {
 				</motion.div>
 			)}
 
+			{deleteError && (
+				<div
+					role="alert"
+					className="mb-4 flex items-center justify-between text-xs text-danger bg-danger/10 border border-danger/30 rounded-[var(--radius-sm)] px-3 py-2"
+				>
+					<span>Could not delete thought: {deleteError}</span>
+					<button
+						type="button"
+						onClick={() => setDeleteError(null)}
+						className="underline hover:text-text-primary transition-colors"
+					>
+						Dismiss
+					</button>
+				</div>
+			)}
+
 			{/* List */}
 			{isLoading ? (
 				<div className="flex justify-center py-20">
@@ -217,10 +244,11 @@ function ThoughtsPageContent() {
 								animate={{ opacity: 1, y: 0 }}
 								exit={{ opacity: 0, scale: 0.96 }}
 								transition={{ duration: 0.3, delay: Math.min(i * 0.02, 0.3) }}
+								className="relative"
 							>
 								<Link
 									href={`/thoughts/${thought.id}`}
-									className="block bg-surface-2 border border-border-subtle rounded-[var(--radius-sm)] p-4 hover:border-border-default transition-all group"
+									className="block bg-surface-2 border border-border-subtle rounded-[var(--radius-sm)] p-4 pr-12 hover:border-border-default transition-all group"
 								>
 									<div className="flex items-start justify-between gap-4 mb-2">
 										<p
@@ -315,6 +343,32 @@ function ThoughtsPageContent() {
 										) : null}
 									</div>
 								</Link>
+								{/* Sibling of the Link, not a child: a button inside <a> is invalid HTML. */}
+								<button
+									type="button"
+									onClick={() => handleDelete(thought.id)}
+									aria-label={`Delete thought: ${thought.content.slice(0, 60)}`}
+									title="Delete thought"
+									className="absolute top-3 right-3 p-1.5 rounded-[var(--radius-sm)] text-text-tertiary hover:text-danger hover:bg-danger/10 focus-visible:text-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-danger/50 transition-colors"
+								>
+									<svg
+										aria-hidden="true"
+										width="14"
+										height="14"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="1.5"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+									>
+										<polyline points="3 6 5 6 21 6" />
+										<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+										<path d="M10 11v6" />
+										<path d="M14 11v6" />
+										<path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+									</svg>
+								</button>
 							</motion.div>
 						))}
 					</AnimatePresence>

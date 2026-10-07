@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useThoughtsStore } from "@/lib/store";
 import type { ThoughtFilters } from "@/lib/types";
 
@@ -36,6 +36,7 @@ function filtersToSearchParams(filters: ThoughtFilters): URLSearchParams {
 export function useThoughtList() {
 	const thoughts = useThoughtsStore((s) => s.thoughts);
 	const setThoughts = useThoughtsStore((s) => s.setThoughts);
+	const removeThought = useThoughtsStore((s) => s.removeThought);
 	const isLoading = useThoughtsStore((s) => s.isLoading);
 	const setIsLoading = useThoughtsStore((s) => s.setIsLoading);
 	const searchParams = useSearchParams();
@@ -71,11 +72,46 @@ export function useThoughtList() {
 		}
 	}, [searchParams, setThoughts, setIsLoading]);
 
+	// Ids hidden from every list on this page. A delete hides its id first, so
+	// the card leaves at once. On success the id stays hidden: a refresh or
+	// search that started before the DELETE landed cannot bring the row back.
+	// On failure the id is un-hidden, which restores the card in place.
+	const [deletedIds, setDeletedIds] = useState<ReadonlySet<string>>(() => new Set());
+
+	const deleteThought = useCallback(
+		async (id: string) => {
+			setDeletedIds((prev) => new Set(prev).add(id));
+			try {
+				const res = await fetch(`/api/thoughts/${id}`, { method: "DELETE" });
+				if (!res.ok) {
+					const data = await res.json().catch(() => ({}));
+					throw new Error(data.error ?? `HTTP ${res.status}`);
+				}
+				removeThought(id);
+			} catch (err) {
+				setDeletedIds((prev) => {
+					const next = new Set(prev);
+					next.delete(id);
+					return next;
+				});
+				throw err;
+			}
+		},
+		[removeThought],
+	);
+
+	const visibleThoughts = useMemo(
+		() => thoughts.filter((t) => !deletedIds.has(t.id)),
+		[thoughts, deletedIds],
+	);
+
 	return {
-		thoughts,
+		thoughts: visibleThoughts,
+		deletedIds,
 		isLoading,
 		filters,
 		setFilters,
 		refresh,
+		deleteThought,
 	};
 }
