@@ -40,10 +40,6 @@ export function useSearch() {
 		}
 	}
 
-	function removeResult(id: string) {
-		setResults((prev) => prev.filter((r) => r.id !== id));
-	}
-
 	function clearSearch() {
 		setSearchQuery("");
 		setResults([]);
@@ -57,7 +53,6 @@ export function useSearch() {
 		isSearching,
 		error,
 		search,
-		removeResult,
 		clearSearch,
 	};
 }

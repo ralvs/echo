@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useThoughtsStore } from "@/lib/store";
 import type { ThoughtFilters } from "@/lib/types";
 
@@ -72,27 +72,42 @@ export function useThoughtList() {
 		}
 	}, [searchParams, setThoughts, setIsLoading]);
 
-	// Optimistic: the card leaves the list at once. On failure, refetch so
-	// the list shows the real state again, then rethrow for the caller.
+	// Ids hidden from every list on this page. A delete hides its id first, so
+	// the card leaves at once. On success the id stays hidden: a refresh or
+	// search that started before the DELETE landed cannot bring the row back.
+	// On failure the id is un-hidden, which restores the card in place.
+	const [deletedIds, setDeletedIds] = useState<ReadonlySet<string>>(() => new Set());
+
 	const deleteThought = useCallback(
 		async (id: string) => {
-			removeThought(id);
+			setDeletedIds((prev) => new Set(prev).add(id));
 			try {
 				const res = await fetch(`/api/thoughts/${id}`, { method: "DELETE" });
 				if (!res.ok) {
 					const data = await res.json().catch(() => ({}));
 					throw new Error(data.error ?? `HTTP ${res.status}`);
 				}
+				removeThought(id);
 			} catch (err) {
-				await refresh();
+				setDeletedIds((prev) => {
+					const next = new Set(prev);
+					next.delete(id);
+					return next;
+				});
 				throw err;
 			}
 		},
-		[removeThought, refresh],
+		[removeThought],
+	);
+
+	const visibleThoughts = useMemo(
+		() => thoughts.filter((t) => !deletedIds.has(t.id)),
+		[thoughts, deletedIds],
 	);
 
 	return {
-		thoughts,
+		thoughts: visibleThoughts,
+		deletedIds,
 		isLoading,
 		filters,
 		setFilters,

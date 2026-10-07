@@ -27,15 +27,9 @@ export default function ThoughtsPage() {
 }
 
 function ThoughtsPageContent() {
-	const { thoughts, isLoading, filters, setFilters, refresh, deleteThought } = useThoughtList();
-	const {
-		query,
-		setQuery,
-		results: searchResults,
-		isSearching,
-		search,
-		removeResult,
-	} = useSearch();
+	const { thoughts, deletedIds, isLoading, filters, setFilters, refresh, deleteThought } =
+		useThoughtList();
+	const { query, setQuery, results: searchResults, isSearching, search } = useSearch();
 	const [deleteError, setDeleteError] = useState<string | null>(null);
 	useEffect(() => {
 		if (!query) refresh();
@@ -43,16 +37,14 @@ function ThoughtsPageContent() {
 
 	const handleDelete = async (id: string) => {
 		setDeleteError(null);
-		removeResult(id);
 		try {
 			await deleteThought(id);
 		} catch (err) {
 			setDeleteError(err instanceof Error ? err.message : String(err));
-			if (query) search();
 		}
 	};
 
-	const displayThoughts = query ? searchResults : thoughts;
+	const displayThoughts = query ? searchResults.filter((t) => !deletedIds.has(t.id)) : thoughts;
 
 	return (
 		<div className="p-8 max-w-[1000px]">
@@ -355,7 +347,7 @@ function ThoughtsPageContent() {
 								<button
 									type="button"
 									onClick={() => handleDelete(thought.id)}
-									aria-label="Delete thought"
+									aria-label={`Delete thought: ${thought.content.slice(0, 60)}`}
 									title="Delete thought"
 									className="absolute top-3 right-3 p-1.5 rounded-[var(--radius-sm)] text-text-tertiary hover:text-danger hover:bg-danger/10 focus-visible:text-danger focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-danger/50 transition-colors"
 								>
